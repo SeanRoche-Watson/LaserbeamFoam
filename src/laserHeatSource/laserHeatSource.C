@@ -134,7 +134,7 @@ void laserHeatSource::createInitialRays
         (
             area // or the Cartesian area element
            *(
-                (2.0 * Foam::sqrt(Radius_Flavour) * Q_cond.value()) 
+                (2.0 * Foam::sqrt(Radius_Flavour) * Q_cond 
                /(
                     Foam::pow(beam_radius, 2.0) * Foam::pow(constant::mathematical::pi, 1.5)
                 )
