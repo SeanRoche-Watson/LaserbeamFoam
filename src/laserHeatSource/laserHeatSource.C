@@ -190,18 +190,24 @@ void laserHeatSource::seedRayCloud
 
             initial_points.append(globalPos + perturbation);
 
-            // Gaussian power distribution using the sample point radius
+            // 4th-order super-Gaussian power distribution (energy-conserving).
+            // I(r) = (2*sqrt(n)*P) / (pi^1.5 * R^2) * exp(-n * r^4 / R^4)
+            // n = Radius_Flavour acts as a concentration knob inside the SG.
+            // n = 1.0 -> pure 4th-order super-Gaussian; larger n is tighter.
             point_assoc_power.append
             (
                 area
                *(
-                    Radius_Flavour*Q_cond
-                   /(Foam::pow(beam_radius, 2.0)*pi)
+                    2.0*Foam::sqrt(Radius_Flavour)*Q_cond
+                   /(
+                        Foam::pow(beam_radius, 2.0)
+                       *Foam::pow(constant::mathematical::pi, 1.5)
+                    )
                 )
                *Foam::exp
                 (
                   - Radius_Flavour
-                   *(Foam::pow(r, 2.0)/Foam::pow(beam_radius, 2.0))
+                   *(Foam::pow(r, 4.0)/Foam::pow(beam_radius, 4.0))
                 )
             );
         }
@@ -248,19 +254,27 @@ void laserHeatSource::seedRayCloud
 
                         initial_points.append(p_1);
 
+                        // 4th-order super-Gaussian (matches if-branch above)
                         point_assoc_power.append
                         (
                             sqr(yDimI[celli]/N_sub_divisions)
                            *(
-                                (Radius_Flavour*Q_cond)
-                               /(Foam::pow(beam_radius, 2.0)*pi)
+                                2.0*Foam::sqrt(Radius_Flavour)*Q_cond
+                               /(
+                                    Foam::pow(beam_radius, 2.0)
+                                   *Foam::pow
+                                    (
+                                        constant::mathematical::pi,
+                                        1.5
+                                    )
+                                )
                             )
                            *Foam::exp
                             (
                               - Radius_Flavour
                                *(
-                                    Foam::pow(r, 2.0)
-                                   /Foam::pow(beam_radius, 2.0)
+                                    Foam::pow(r, 4.0)
+                                   /Foam::pow(beam_radius, 4.0)
                                 )
                             )
                         );
