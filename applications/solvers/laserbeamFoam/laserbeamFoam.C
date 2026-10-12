@@ -156,7 +156,7 @@ int main(int argc, char *argv[])
             }
 
             #include "updateProps.H"
-			#include "updateElectricalResistivity" //added
+			#include "updateElectricalResistivity.H"
 
             // Update the laser deposition field
             laser.updateDeposition

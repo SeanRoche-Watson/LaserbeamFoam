@@ -819,6 +819,19 @@ volScalarField electrical_resistivity
 );
 // end of modifications
 
+// Weight the metal resistivity by alpha.metal in mixed cells?
+//   no  (default): the laser sees the metal's own rho_e(T) in interface cells
+//   yes          : rho_e = alpha.metal*rho_e(T)  (original PR #140 behaviour)
+const Switch resistivityAlphaWeighting
+(
+    transportPropertiesMetal.getOrDefault<Switch>
+    (
+        "resistivityAlphaWeighting",
+        false
+    )
+);
+Info<< "resistivityAlphaWeighting = " << resistivityAlphaWeighting << endl;
+
 
 
 autoPtr<mthdModel> mthd(nullptr);
@@ -832,19 +845,8 @@ const dimensionedScalar eleccond1 =
     mthdModel::readElectricalConductivity(transportPropertiesMetal);
 
 
-volScalarField electrical_resistivity
-(
-    IOobject
-    (
-        "electrical_resistivity",
-        runTime.timeName(),
-        mesh,
-        IOobject::NO_READ,
-        IOobject::NO_WRITE
-    ),
-    mesh,
-    1.0/eleccond1
-);
+// (Original constant electrical_resistivity field removed: it is now
+//  declared above and filled from electricalResistivityTable each step.)
 
 
 

@@ -211,6 +211,7 @@ bool Foam::laserRayParticle::move
                 else
                 {
                     td.deposition_[cellI] += power_ / VI[cellI];
+                    td.powerSplit_[2] += power_;
                     power_ = 0.0;
                     path_.append(position());
                     td.finishedRayIDs_.append(globalRayIndex_);
@@ -224,6 +225,7 @@ bool Foam::laserRayParticle::move
             {
                 // Stuck skimming the band: absorb the remainder and die.
                 td.deposition_[cellI] += power_ / VI[cellI];
+                td.powerSplit_[2] += power_;
                 power_ = 0.0;
                 path_.append(position());
                 td.finishedRayIDs_.append(globalRayIndex_);
@@ -266,6 +268,7 @@ bool Foam::laserRayParticle::move
 
             // Deposit absorbed fraction
             td.deposition_[cellI] += fresnelAbsorptivity * power_ / VI[cellI];
+            td.powerSplit_[0] += fresnelAbsorptivity*power_;
 
             // Reduce ray power
             power_ *= (1.0 - fresnelAbsorptivity);
@@ -321,6 +324,7 @@ bool Foam::laserRayParticle::move
                 else if (action == "deposit")
                 {
                     td.deposition_[cellI] += power_ / VI[cellI];
+                    td.powerSplit_[2] += power_;
                     power_ = 0.0;
                 }
                 else if (action == "escape" || action == "discard")
@@ -373,6 +377,7 @@ bool Foam::laserRayParticle::move
             // ================================================
 
             td.deposition_[cellI] += power_ / VI[cellI];
+            td.powerSplit_[1] += power_;
             power_ = 0.0;
             path_.append(position());
             td.finishedRayIDs_.append(globalRayIndex_);
@@ -447,6 +452,7 @@ void Foam::laserRayParticle::hitWallPatch
     {
         const scalarField& VI = this->mesh().cellVolumes();
         td.deposition_[cellI] += power_ / VI[cellI];
+        td.powerSplit_[3] += power_;
         power_ = 0.0;
     }
 

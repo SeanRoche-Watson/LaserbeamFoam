@@ -16,8 +16,8 @@
     nuTableField.correctBoundaryConditions();
     
     Info<< "nuTableField min/max: "
-    	<< min(electrical_resistivity).value() << " "
-    	<< max(electrical_resistivity).value() << nl;
+    	<< min(nuTableField).value() << " "
+    	<< max(nuTableField).value() << nl;
 
 }
 

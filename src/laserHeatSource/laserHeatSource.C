@@ -889,6 +889,7 @@ void laserHeatSource::updateDeposition
     scalar minAbsorptivity = GREAT;
     label nearZeroAbsorptivityCount = 0;
     label maxObservedBounces = 0;
+    FixedList<scalar, 4> powerSplit(Zero);
 
     laserRayParticle::trackingData td
     (
@@ -911,6 +912,7 @@ void laserHeatSource::updateDeposition
         minAbsorptivity,
         nearZeroAbsorptivityCount,
         maxObservedBounces,
+        powerSplit,
         finishedRayIDs,
         finishedRayPaths
     );
@@ -927,6 +929,10 @@ void laserHeatSource::updateDeposition
     reduce(minAbsorptivity, minOp<scalar>());
     reduce(nearZeroAbsorptivityCount, sumOp<label>());
     reduce(maxObservedBounces, maxOp<label>());
+    forAll(powerSplit, i)
+    {
+        reduce(powerSplit[i], sumOp<scalar>());
+    }
 
     // ==================================================================
     // Step 4: Gather ray path segments to master for VTK output
@@ -1002,6 +1008,24 @@ void laserHeatSource::updateDeposition
 
     const scalar TotalQ = fvc::domainIntegrate(deposition_).value();
     Info<< "    Total Q deposited: " << TotalQ << endl;
+
+    // Diagnostic: where this laser's power went (fractions of laser power).
+    // 'not absorbed' = reflected out of the domain, discarded, or cut off
+    // by rayPowerRelTol.
+    {
+        const scalar P = mag(currentLaserPower) + VSMALL;
+        const scalar absorbed =
+            powerSplit[0] + powerSplit[1] + powerSplit[2] + powerSplit[3];
+
+        Info<< "    Laser power split (fraction of " << currentLaserPower
+            << " W): fresnel " << powerSplit[0]/P
+            << "  bulkDump " << powerSplit[1]/P
+            << "  escapeDump " << powerSplit[2]/P
+            << "  wall " << powerSplit[3]/P
+            << "  totalAbsorbed " << absorbed/P
+            << "  notAbsorbed " << 1.0 - absorbed/P
+            << endl;
+    }
 
     if (maxBounceTerminations > 0)
     {

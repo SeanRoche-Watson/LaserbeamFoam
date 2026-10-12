@@ -43,6 +43,7 @@ SourceFiles
 #define laserRayParticle_H
 
 #include "particle.H"
+#include "FixedList.H"
 #include "Cloud.H"
 #include "volFields.H"
 #include "DynamicList.H"
@@ -170,6 +171,14 @@ public:
             //- Largest bounce count encountered on this rank
             label& maxObservedBounces_;
 
+            //- Diagnostic: where the laser power ends up on this rank [W]
+            //  [0] Fresnel absorption at interface cells
+            //  [1] bulk-metal dump (ray enters metal not flagged as interface)
+            //  [2] escape-band dumps (redirect limit / stuck skimming /
+            //      maxRayBounces 'deposit')
+            //  [3] wall-patch dump (domain boundary)
+            FixedList<scalar, 4>& powerSplit_;
+
             //- Collected ray paths from finished particles
             //  (particles store their paths here before dying,
             //   since dead particles are removed from the cloud)
@@ -199,6 +208,7 @@ public:
             scalar& minAbsorptivity,
             label& nearZeroAbsorptivityCount,
             label& maxObservedBounces,
+            FixedList<scalar, 4>& powerSplit,
             DynamicList<label>& finishedRayIDs,
             DynamicList<DynamicList<point>>& finishedRayPaths
         )
@@ -222,6 +232,7 @@ public:
             minAbsorptivity_(minAbsorptivity),
             nearZeroAbsorptivityCount_(nearZeroAbsorptivityCount),
             maxObservedBounces_(maxObservedBounces),
+            powerSplit_(powerSplit),
             finishedRayIDs_(finishedRayIDs),
             finishedRayPaths_(finishedRayPaths)
         {}
