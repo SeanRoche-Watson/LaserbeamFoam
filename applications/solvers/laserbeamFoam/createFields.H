@@ -953,3 +953,12 @@ mesh.setFluxRequired(alpha1.name());
 
 #include "isoAdvector/createPorosity.H"
 isoAdvection advector(alpha1, phi, U);
+
+// Log how much of the interface gradient survives the gradSchemes limiter in
+// molten interface cells (Marangoni force uses grad(alpha.metal) and grad(T)).
+// Compares the gradients the solver uses with an unlimited Gauss linear reference.
+const Switch gradientDiagnostics
+(
+    transportProperties.getOrDefault<Switch>("gradientDiagnostics", true)
+);
+Info<< "gradientDiagnostics = " << gradientDiagnostics << endl;

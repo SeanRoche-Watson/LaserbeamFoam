@@ -61,6 +61,7 @@ Authors
 #include "fvOptions.H"
 #include "CorrectPhi.H"
 #include "fvcSmooth.H"
+#include "gaussGrad.H"
 #include "dynamicRefineFvMesh.H"
 
 #include "Polynomial.H"
