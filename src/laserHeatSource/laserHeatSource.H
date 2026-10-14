@@ -132,6 +132,7 @@ class laserHeatSource
             const label nAngular,
             const vector& V_incident,
             const scalar Radius_Flavour,
+            const scalar superGaussianOrder,
             const scalar Q_cond,
             const scalar beam_radius,
             label& nTotalRays
@@ -214,6 +215,7 @@ public:
             const scalar e_num_density,
             const scalar dep_cutoff,
             const scalar Radius_Flavour,
+            const scalar superGaussianOrder,
             const Switch useLocalSearch,
             const label maxLocalSearch,
             const scalar rayPowerRelTol,

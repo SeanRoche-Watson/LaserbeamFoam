@@ -28,6 +28,33 @@ License
 namespace Foam
 {
 
+namespace
+{
+    // Normalised (super-)Gaussian beam intensity [W/m^2]
+    //
+    //   I(r) = Q*RF^(1/n)/(pi*w^2*Gamma(1 + 1/n)) * exp(-RF*(r/w)^(2n))
+    //
+    // RF = Radius_Flavour (2 -> w is the 1/e^2 radius),
+    // n  = superGaussianOrder.
+    // The prefactor makes the integral over the plane equal Q for any n;
+    // n = 1 gives the original RF*Q/(pi*w^2)*exp(-RF*r^2/w^2).
+    inline scalar beamIntensity
+    (
+        const scalar r,
+        const scalar w,
+        const scalar Q,
+        const scalar RF,
+        const scalar n
+    )
+    {
+        const scalar pi = constant::mathematical::pi;
+        const scalar I0 =
+            Q*Foam::pow(RF, 1.0/n)/(pi*sqr(w)*std::tgamma(1.0 + 1.0/n));
+        return I0*Foam::exp(-RF*Foam::pow(r/w, 2.0*n));
+    }
+}
+
+
 // * * * * * * * * * * * * * * Static Data Members * * * * * * * * * * * * * //
 
 defineTypeNameAndDebug(laserHeatSource, 0);
@@ -47,6 +74,7 @@ void laserHeatSource::seedRayCloud
     const label nAngular,
     const vector& V_incident,
     const scalar Radius_Flavour,
+    const scalar superGaussianOrder,
     const scalar Q_cond,
     const scalar beam_radius,
     label& nTotalRays
@@ -95,7 +123,8 @@ void laserHeatSource::seedRayCloud
 
     if (radialPolarHeatSource())
     {
-        Info<< "nRadial: " << nRadial << nl
+        Info<< "superGaussianOrder: " << superGaussianOrder << nl
+            << "nRadial: " << nRadial << nl
             << "nAngular: " << nAngular << endl;
 
         const scalar rMax = 1.5*beam_radius;
@@ -194,14 +223,9 @@ void laserHeatSource::seedRayCloud
             point_assoc_power.append
             (
                 area
-               *(
-                    Radius_Flavour*Q_cond
-                   /(Foam::pow(beam_radius, 2.0)*pi)
-                )
-               *Foam::exp
+               *beamIntensity
                 (
-                  - Radius_Flavour
-                   *(Foam::pow(r, 2.0)/Foam::pow(beam_radius, 2.0))
+                    r, beam_radius, Q_cond, Radius_Flavour, superGaussianOrder
                 )
             );
         }
@@ -251,17 +275,13 @@ void laserHeatSource::seedRayCloud
                         point_assoc_power.append
                         (
                             sqr(yDimI[celli]/N_sub_divisions)
-                           *(
-                                (Radius_Flavour*Q_cond)
-                               /(Foam::pow(beam_radius, 2.0)*pi)
-                            )
-                           *Foam::exp
+                           *beamIntensity
                             (
-                              - Radius_Flavour
-                               *(
-                                    Foam::pow(r, 2.0)
-                                   /Foam::pow(beam_radius, 2.0)
-                                )
+                                r,
+                                beam_radius,
+                                Q_cond,
+                                Radius_Flavour,
+                                superGaussianOrder
                             )
                         );
                     }
@@ -718,6 +738,20 @@ void laserHeatSource::updateDeposition
         (
             dict.lookupOrDefault<scalar>("Radius_Flavour", 2.0)
         );
+        // Super-Gaussian order n: I ~ exp(-Radius_Flavour*(r/w)^(2n)).
+        // n = 1 (default) is the original Gaussian; n = 2 is a flat-topped
+        // multimode profile. Power is renormalised so the beam still
+        // carries the full laser power for any n.
+        const scalar superGaussianOrder
+        (
+            dict.lookupOrDefault<scalar>("superGaussianOrder", 1.0)
+        );
+        if (superGaussianOrder < 0.5)
+        {
+            FatalErrorInFunction
+                << "superGaussianOrder must be >= 0.5, got "
+                << superGaussianOrder << exit(FatalError);
+        }
         const Switch useLocalSearch
         (
             dict.lookupOrDefault<Switch>("useLocalSearch", true)
@@ -760,6 +794,7 @@ void laserHeatSource::updateDeposition
             e_num_density,
             dep_cutoff,
             Radius_Flavour,
+            superGaussianOrder,
             useLocalSearch,
             maxLocalSearch,
             rayPowerRelTol,
@@ -805,6 +840,7 @@ void laserHeatSource::updateDeposition
     const scalar e_num_density,
     const scalar dep_cutoff,
     const scalar Radius_Flavour,
+    const scalar superGaussianOrder,
     const Switch useLocalSearch,
     const label maxLocalSearch,
     const scalar rayPowerRelTol,
@@ -865,6 +901,7 @@ void laserHeatSource::updateDeposition
         nAngular,
         V_incident,
         Radius_Flavour,
+        superGaussianOrder,
         currentLaserPower,
         beam_radius,
         nTotalRays
