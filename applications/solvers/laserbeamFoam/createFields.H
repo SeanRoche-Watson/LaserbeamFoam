@@ -186,6 +186,101 @@ const dimensionedScalar Marangoni_Constant
     transportProperties//.lookup("dsigmadT")
 );
 
+// Temperature-dependent surface-tension gradient (optional).
+//   MarangoniModel constant;  -> dsigma/dT = Marangoni_Constant (default, as before)
+//   MarangoniModel Sahoo;     -> Fe-S model of Sahoo, DebRoy & McNallan (1988):
+//
+//     dsigma/dT = -A - R*Gamma_s*ln(1 + K*a_s)
+//                 - K*a_s/(1 + K*a_s) * Gamma_s*deltaH0/T,
+//     K = k1*exp(-deltaH0/(R*T))
+//
+//   a_s = sulphur activity (taken as the S content in wt%), read as
+//   MarangoniSulphur. The other constants default to the Fe-S values of Sahoo
+//   et al. and can be overridden in transportProperties:
+//     MarangoniA        4.3e-4    [N/m/K]
+//     MarangoniGammaS   1.3e-8    [kmol/m^2]
+//     MarangoniDeltaH0  -1.66e8   [J/kmol]
+//     MarangoniK1       3.18e-3   [-]
+//   With S above ~30 ppm dsigma/dT is positive (inward flow) below a
+//   cross-over temperature and negative (outward) above it.
+const word MarangoniModel
+(
+    transportProperties.lookupOrDefault<word>("MarangoniModel", "constant")
+);
+
+const bool sahooMarangoni = (MarangoniModel == "Sahoo");
+
+if (!sahooMarangoni && MarangoniModel != "constant")
+{
+    FatalErrorInFunction
+        << "Unknown MarangoniModel " << MarangoniModel
+        << ". Valid options: constant, Sahoo" << exit(FatalError);
+}
+
+const scalar MarangoniSulphur
+(
+    sahooMarangoni
+  ? transportProperties.get<scalar>("MarangoniSulphur")
+  : 0.0
+);
+const scalar MarangoniA
+(
+    transportProperties.lookupOrDefault<scalar>("MarangoniA", 4.3e-4)
+);
+const scalar MarangoniGammaS
+(
+    transportProperties.lookupOrDefault<scalar>("MarangoniGammaS", 1.3e-8)
+);
+const scalar MarangoniDeltaH0
+(
+    transportProperties.lookupOrDefault<scalar>("MarangoniDeltaH0", -1.66e8)
+);
+const scalar MarangoniK1
+(
+    transportProperties.lookupOrDefault<scalar>("MarangoniK1", 3.18e-3)
+);
+
+// Sahoo dsigma/dT at temperature T [N/m/K]
+auto sahooDsigmadT = [&](const scalar Tc) -> scalar
+{
+    const scalar R = 8314.462618;   // J/(kmol K)
+    const scalar K =
+        MarangoniK1*Foam::exp(-MarangoniDeltaH0/(R*Tc));
+    const scalar Ka = K*MarangoniSulphur;
+    return
+       -MarangoniA
+      - R*MarangoniGammaS*Foam::log(1.0 + Ka)
+      - Ka/(1.0 + Ka)*MarangoniGammaS*MarangoniDeltaH0/Tc;
+};
+
+volScalarField dsigmadT
+(
+    IOobject
+    (
+        "dsigmadT",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        IOobject::NO_WRITE
+    ),
+    mesh,
+    Marangoni_Constant
+);
+
+Info<< "MarangoniModel: " << MarangoniModel;
+if (sahooMarangoni)
+{
+    Info<< "  S = " << MarangoniSulphur << " wt%" << nl
+        << "    dsigma/dT at 1750 / 2000 / 2500 / 3000 K = "
+        << sahooDsigmadT(1750) << " / " << sahooDsigmadT(2000) << " / "
+        << sahooDsigmadT(2500) << " / " << sahooDsigmadT(3000)
+        << " N/m/K" << endl;
+}
+else
+{
+    Info<< "  dsigma/dT = " << Marangoni_Constant.value() << " N/m/K" << endl;
+}
+
 const dimensionedScalar p0
 (
     "p0",

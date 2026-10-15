@@ -22,11 +22,24 @@ gradAlpha.correctBoundaryConditions();  // ADDED - CRITICAL!
 nHatM = gradAlpha/(mag(gradAlpha) + deltaN);
 nHatM.correctBoundaryConditions();  // ADDED
 
-Marangoni =
-    epsilon1*Marangoni_Constant*(gradT - nHatM*(nHatM & gradT))*mag(gradAlpha);
-
 const scalar Tliquidus1Value = Tliquidus1.value();
 const scalarField& TI = T;
+
+if (sahooMarangoni)
+{
+    // Only molten cells carry a Marangoni force (zeroed below), so clamp the
+    // evaluation temperature at the liquidus to keep K finite elsewhere.
+    scalarField& dsI = dsigmadT.primitiveFieldRef();
+    forAll(dsI, celli)
+    {
+        dsI[celli] = sahooDsigmadT(max(TI[celli], Tliquidus1Value));
+    }
+    dsigmadT.correctBoundaryConditions();
+}
+
+Marangoni =
+    epsilon1*dsigmadT*(gradT - nHatM*(nHatM & gradT))*mag(gradAlpha);
+
 vectorField& MarangoniI = Marangoni;
 forAll(MarangoniI, celli)
 {
