@@ -113,6 +113,14 @@ class laserHeatSource
         //- Global bounding box of the mesh
         boundBox globalBB_;
 
+        //- Optional multi-term beam profile for the laser currently being
+        //  seeded (empty -> single super-Gaussian of radius laserRadius).
+        //  Each entry: (type, fraction, a, b) with
+        //    type 0 = gaussian: a = 1/e^2 radius w, b unused
+        //    type 1 = ring:     a = ring radius R, b = Gaussian sigma s
+        //  Fractions are normalised to sum to 1.
+        List<FixedList<scalar, 4>> beamTerms_;
+
 
     // Private Member Functions
 

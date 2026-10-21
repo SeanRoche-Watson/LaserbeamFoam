@@ -52,6 +52,58 @@ namespace
             Q*Foam::pow(RF, 1.0/n)/(pi*sqr(w)*std::tgamma(1.0 + 1.0/n));
         return I0*Foam::exp(-RF*Foam::pow(r/w, 2.0*n));
     }
+
+    // Integral over the plane of exp(-(r - R)^2/(2 s^2)):
+    //   2 pi [ s^2 exp(-R^2/(2 s^2)) + R s sqrt(pi/2) (1 + erf(R/(sqrt(2) s))) ]
+    inline scalar ringArea(const scalar R, const scalar s)
+    {
+        const scalar pi = constant::mathematical::pi;
+        return
+            2.0*pi
+           *(
+                sqr(s)*Foam::exp(-sqr(R)/(2.0*sqr(s)))
+              + R*s*Foam::sqrt(pi/2.0)
+               *(1.0 + std::erf(R/(Foam::sqrt(2.0)*s)))
+            );
+    }
+
+    // Multi-term beam intensity [W/m^2]; each term carries fraction*Q
+    inline scalar multiTermIntensity
+    (
+        const scalar r,
+        const scalar Q,
+        const List<FixedList<scalar, 4>>& terms
+    )
+    {
+        const scalar pi = constant::mathematical::pi;
+        scalar I = 0;
+        forAll(terms, i)
+        {
+            const FixedList<scalar, 4>& t = terms[i];
+            if (t[0] < 0.5)
+            {
+                I += t[1]*Q*2.0/(pi*sqr(t[2]))*Foam::exp(-2.0*sqr(r/t[2]));
+            }
+            else
+            {
+                I += t[1]*Q/ringArea(t[2], t[3])
+                    *Foam::exp(-sqr(r - t[2])/(2.0*sqr(t[3])));
+            }
+        }
+        return I;
+    }
+
+    // Seeding radius that captures each term
+    inline scalar multiTermRMax(const List<FixedList<scalar, 4>>& terms)
+    {
+        scalar rMax = 0;
+        forAll(terms, i)
+        {
+            const FixedList<scalar, 4>& t = terms[i];
+            rMax = max(rMax, t[0] < 0.5 ? 1.5*t[2] : t[2] + 3.0*t[3]);
+        }
+        return rMax;
+    }
 }
 
 
@@ -127,7 +179,9 @@ void laserHeatSource::seedRayCloud
             << "nRadial: " << nRadial << nl
             << "nAngular: " << nAngular << endl;
 
-        const scalar rMax = 1.5*beam_radius;
+        const scalar rMax =
+            beamTerms_.size() ? multiTermRMax(beamTerms_) : 1.5*beam_radius;
+        Info<< "beam seeding radius rMax: " << rMax << endl;
 
         // ================================================================
         // Improved radial discretisation for smoother Gaussian
@@ -223,9 +277,14 @@ void laserHeatSource::seedRayCloud
             point_assoc_power.append
             (
                 area
-               *beamIntensity
-                (
-                    r, beam_radius, Q_cond, Radius_Flavour, superGaussianOrder
+               *(
+                    beamTerms_.size()
+                  ? multiTermIntensity(r, Q_cond, beamTerms_)
+                  : beamIntensity
+                    (
+                        r, beam_radius, Q_cond, Radius_Flavour,
+                        superGaussianOrder
+                    )
                 )
             );
         }
@@ -248,7 +307,8 @@ void laserHeatSource::seedRayCloud
 
             if
             (
-                r <= (1.5*beam_radius)
+                r <= (beamTerms_.size()
+                      ? multiTermRMax(beamTerms_) : 1.5*beam_radius)
              && laserBoundary_[celli] > SMALL
             )
             {
@@ -275,13 +335,17 @@ void laserHeatSource::seedRayCloud
                         point_assoc_power.append
                         (
                             sqr(yDimI[celli]/N_sub_divisions)
-                           *beamIntensity
-                            (
-                                r,
-                                beam_radius,
-                                Q_cond,
-                                Radius_Flavour,
-                                superGaussianOrder
+                           *(
+                                beamTerms_.size()
+                              ? multiTermIntensity(r, Q_cond, beamTerms_)
+                              : beamIntensity
+                                (
+                                    r,
+                                    beam_radius,
+                                    Q_cond,
+                                    Radius_Flavour,
+                                    superGaussianOrder
+                                )
                             )
                         );
                     }
@@ -752,6 +816,73 @@ void laserHeatSource::updateDeposition
                 << "superGaussianOrder must be >= 0.5, got "
                 << superGaussianOrder << exit(FatalError);
         }
+        // Optional multi-term beam profile, e.g.
+        //   beamTerms
+        //   {
+        //       core { type gaussian; fraction 0.67; w 850e-6; }
+        //       halo { type ring; fraction 0.33; R 1109e-6; s 334e-6; }
+        //   }
+        // gaussian: I ~ exp(-2 r^2/w^2) (w = 1/e^2 radius)
+        // ring:     I ~ exp(-(r - R)^2/(2 s^2))
+        // Each term is normalised to carry fraction*laser power (fractions
+        // are rescaled to sum to 1). When present, laserRadius,
+        // Radius_Flavour and superGaussianOrder do not set the profile.
+        beamTerms_.clear();
+        if (dict.found("beamTerms"))
+        {
+            const dictionary& bt = dict.subDict("beamTerms");
+            const wordList names(bt.toc());
+            DynamicList<FixedList<scalar, 4>> terms;
+            scalar fSum = 0;
+            forAll(names, i)
+            {
+                const dictionary& td = bt.subDict(names[i]);
+                const word type(td.lookup("type"));
+                FixedList<scalar, 4> t(0.0);
+                t[1] = readScalar(td.lookup("fraction"));
+                if (type == "gaussian")
+                {
+                    t[0] = 0; t[2] = readScalar(td.lookup("w"));
+                }
+                else if (type == "ring")
+                {
+                    t[0] = 1;
+                    t[2] = readScalar(td.lookup("R"));
+                    t[3] = readScalar(td.lookup("s"));
+                }
+                else
+                {
+                    FatalErrorInFunction
+                        << "beamTerms/" << names[i] << ": unknown type "
+                        << type << " (use gaussian or ring)"
+                        << exit(FatalError);
+                }
+                if (t[1] < 0 || t[2] < 0 || (t[0] > 0.5 && t[3] <= 0)
+                 || (t[0] < 0.5 && t[2] <= 0))
+                {
+                    FatalErrorInFunction
+                        << "beamTerms/" << names[i]
+                        << ": fraction/w/R must be >= 0 and w, s > 0"
+                        << exit(FatalError);
+                }
+                fSum += t[1];
+                terms.append(t);
+            }
+            if (fSum <= 0)
+            {
+                FatalErrorInFunction
+                    << "beamTerms: fractions sum to zero" << exit(FatalError);
+            }
+            forAll(terms, i)
+            {
+                terms[i][1] /= fSum;
+            }
+            beamTerms_.transfer(terms);
+            Info<< "    multi-term beam (type 0 gaussian w | 1 ring R s): "
+                << beamTerms_ << " (fractions summed to " << fSum << ")"
+                << endl;
+        }
+
         const Switch useLocalSearch
         (
             dict.lookupOrDefault<Switch>("useLocalSearch", true)
