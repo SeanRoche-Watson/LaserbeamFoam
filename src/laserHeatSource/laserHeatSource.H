@@ -50,6 +50,7 @@ SourceFiles
 #include "OFstream.H"
 #include "Cloud.H"
 #include "laserRayParticle.H"
+#include "Tuple2.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -121,8 +122,31 @@ class laserHeatSource
         //  Fractions are normalised to sum to 1.
         List<FixedList<scalar, 4>> beamTerms_;
 
+        //- Tabulated radial beam profile (beamController). When set, it
+        //  overrides beamTerms / laserRadius: I(r) = P*G(r), G piecewise
+        //  linear between the nodes ctrlR_ [m], zero beyond the last node.
+        //  G has units 1/m^2; its plane integral is the power scale factor.
+        scalarField ctrlR_;
+        scalarField ctrlG_;
+
+        //- Controller bookkeeping
+        bool ctrlInit_;
+        scalar ctrlLastUpdate_;
+
 
     // Private Member Functions
+
+        //- Beam-profile controller / fixed tabulated profile (see the
+        //  beamController sub-dictionary documented in laserHeatSource.C)
+        void updateBeamController
+        (
+            const dictionary& dict,
+            const vector& laserPosition,
+            const volScalarField& alphaFiltered,
+            const scalar laserRadius,
+            const scalar Radius_Flavour,
+            const scalar superGaussianOrder
+        );
 
         //- Seed the ray cloud with initial ray particles.
         //  Creates laserRayParticle objects and adds them to the cloud.

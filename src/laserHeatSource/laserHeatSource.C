@@ -23,6 +23,9 @@ License
 #include "SortableList.H"
 
 #include "findLocalCell.H"
+#include "IFstream.H"
+#include "OSspecific.H"
+#include <fstream>
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
 namespace Foam
@@ -91,6 +94,35 @@ namespace
             }
         }
         return I;
+    }
+
+    // Piecewise-linear tabulated profile G(r) (zero beyond the last node)
+    inline scalar tableValue
+    (
+        const scalar r,
+        const scalarField& R,
+        const scalarField& G
+    )
+    {
+        if (r >= R.last()) return 0;
+        label i = 0;
+        while (i < R.size() - 2 && r > R[i + 1]) ++i;
+        const scalar f = (r - R[i])/(R[i + 1] - R[i] + VSMALL);
+        return (1 - f)*G[i] + f*G[i + 1];
+    }
+
+    // Plane integral of a piecewise-linear G(r): sum 2 pi int r G dr
+    inline scalar tableIntegral(const scalarField& R, const scalarField& G)
+    {
+        const scalar pi = constant::mathematical::pi;
+        scalar s = 0;
+        for (label i = 0; i < R.size() - 1; ++i)
+        {
+            const scalar r0 = R[i], r1 = R[i + 1];
+            s += 2*pi*(r1 - r0)
+                *(G[i]*(2*r0 + r1) + G[i + 1]*(r0 + 2*r1))/6.0;
+        }
+        return s;
     }
 
     // Seeding radius that captures each term
@@ -180,7 +212,9 @@ void laserHeatSource::seedRayCloud
             << "nAngular: " << nAngular << endl;
 
         const scalar rMax =
-            beamTerms_.size() ? multiTermRMax(beamTerms_) : 1.5*beam_radius;
+            ctrlR_.size() ? ctrlR_.last()
+          : beamTerms_.size() ? multiTermRMax(beamTerms_)
+          : 1.5*beam_radius;
         Info<< "beam seeding radius rMax: " << rMax << endl;
 
         // ================================================================
@@ -278,7 +312,9 @@ void laserHeatSource::seedRayCloud
             (
                 area
                *(
-                    beamTerms_.size()
+                    ctrlR_.size()
+                  ? Q_cond*tableValue(r, ctrlR_, ctrlG_)
+                  : beamTerms_.size()
                   ? multiTermIntensity(r, Q_cond, beamTerms_)
                   : beamIntensity
                     (
@@ -307,7 +343,8 @@ void laserHeatSource::seedRayCloud
 
             if
             (
-                r <= (beamTerms_.size()
+                r <= (ctrlR_.size() ? ctrlR_.last()
+                      : beamTerms_.size()
                       ? multiTermRMax(beamTerms_) : 1.5*beam_radius)
              && laserBoundary_[celli] > SMALL
             )
@@ -336,7 +373,9 @@ void laserHeatSource::seedRayCloud
                         (
                             sqr(yDimI[celli]/N_sub_divisions)
                            *(
-                                beamTerms_.size()
+                                ctrlR_.size()
+                              ? Q_cond*tableValue(r, ctrlR_, ctrlG_)
+                              : beamTerms_.size()
                               ? multiTermIntensity(r, Q_cond, beamTerms_)
                               : beamIntensity
                                 (
@@ -542,7 +581,12 @@ laserHeatSource::laserHeatSource
     timeVsLaserPower_(0),
     rayPaths_(0),
     vtkTimes_(),
-    globalBB_(mesh.bounds())
+    globalBB_(mesh.bounds()),
+    beamTerms_(),
+    ctrlR_(),
+    ctrlG_(),
+    ctrlInit_(false),
+    ctrlLastUpdate_(-GREAT)
 {
     Info<< "radialPolarHeatSource = " << radialPolarHeatSource_ << endl;
 
@@ -883,6 +927,19 @@ void laserHeatSource::updateDeposition
                 << endl;
         }
 
+        if (dict.found("beamController"))
+        {
+            updateBeamController
+            (
+                dict.subDict("beamController"),
+                currentLaserPosition,
+                alphaFiltered,
+                laserRadius,
+                Radius_Flavour,
+                superGaussianOrder
+            );
+        }
+
         const Switch useLocalSearch
         (
             dict.lookupOrDefault<Switch>("useLocalSearch", true)
@@ -937,6 +994,321 @@ void laserHeatSource::updateDeposition
     }
 
     deposition_.correctBoundaryConditions();
+}
+
+
+// * * * * * * * * * * * * * * Beam controller * * * * * * * * * * * * * * //
+//
+//  Optional sub-dictionary in LaserProperties:
+//
+//  beamController
+//  {
+//      active        true;     // false: fixed tabulated profile only
+//      profileFile   "...";    // optional: start from (or, if inactive,
+//                              // use) a saved profile; otherwise the
+//                              // controller starts from the case's own
+//                              // beam (beamTerms or laserRadius)
+//      resume        true;     // re-read <case>/beamController/latest on
+//                              // a restart (default true)
+//      nNodes        21;  rMax 2e-3;     // radial nodes 0..rMax
+//      Tiso          1660;     // fusion isotherm [K]
+//      alphaMin      0.5;      // metal cells: alpha_filtered >= alphaMin
+//      surfaceLevel  0;        // original plate top (depthDir coordinate)
+//      depthDir      (0 1 0);  // into the plate
+//      crossDir      (1 0 0);  // across the track
+//      binWidth      50e-6;
+//      start 0.1;  end 0.37;  interval 0.005;    // [s]
+//      gain          0.05;     // per update, on log G
+//      maxStep       0.1;      // cap on |d log G| per update
+//      smooth        0.25;     // neighbour smoothing of d log G
+//      conservePower false;    // true: shape only, total power fixed
+//      maxPowerScale 3;        // cap on total power / set power
+//      depthOffset   50e-6;    // regularises the log error near edges
+//      targetDepth   ( (x0 D0) (x1 D1) ... );   // |x| [m], depth [m]
+//  }
+//
+//  The measured quantity is the current melt pool projected onto the
+//  cross-section: for every |x| bin, the deepest metal cell with
+//  T >= Tiso (anywhere along the track). In steady state this is the
+//  fusion line the pool leaves behind. Each update compares it with
+//  targetDepth and moves the radial node at r ~ |x| by
+//      d log G = gain * log((D_target + d0)/(D_sim + d0))
+//  where a bin with no melt counts as D = -d0/2. Absorption (Fresnel,
+//  notch trapping) is still computed by the ray tracer: the controller
+//  only changes the incident beam.
+//  Writes <case>/beamController/{history.dat, depth.dat, latest}.
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+void laserHeatSource::updateBeamController
+(
+    const dictionary& cd,
+    const vector& laserPosition,
+    const volScalarField& alphaFiltered,
+    const scalar laserRadius,
+    const scalar Radius_Flavour,
+    const scalar superGaussianOrder
+)
+{
+    const fvMesh& mesh = deposition_.mesh();
+    const Time& runTime = mesh.time();
+    const scalar t = runTime.value();
+    const fileName dir(runTime.globalPath()/"beamController");
+
+    const Switch active(cd.lookupOrDefault<Switch>("active", true));
+
+    // ---- initialise the table once ----
+    if (!ctrlInit_)
+    {
+        ctrlInit_ = true;
+        fileName src;
+        if (cd.lookupOrDefault<Switch>("resume", true)
+         && isFile(dir/"latest") && runTime.startTime().value() > SMALL)
+        {
+            src = dir/"latest";
+        }
+        else if (cd.found("profileFile"))
+        {
+            src = cd.get<fileName>("profileFile");
+            src.expand();
+        }
+
+        if (!src.empty())
+        {
+            IFstream is(src);
+            if (!is.good())
+            {
+                FatalErrorInFunction
+                    << "beamController: cannot read " << src
+                    << exit(FatalError);
+            }
+            const dictionary pd(is);
+            ctrlR_ = pd.get<scalarField>("r");
+            ctrlG_ = pd.get<scalarField>("G");
+            if (ctrlR_.size() < 2 || ctrlR_.size() != ctrlG_.size())
+            {
+                FatalErrorInFunction
+                    << "beamController: r and G in " << src
+                    << " must be the same length (>= 2)" << exit(FatalError);
+            }
+            Info<< "    beamController: profile read from " << src << endl;
+        }
+        else
+        {
+            const label nN(cd.lookupOrDefault<label>("nNodes", 21));
+            const scalar rM(cd.lookupOrDefault<scalar>("rMax", 2e-3));
+            ctrlR_.setSize(nN);
+            ctrlG_.setSize(nN);
+            forAll(ctrlR_, i)
+            {
+                const scalar r = rM*scalar(i)/scalar(nN - 1);
+                ctrlR_[i] = r;
+                ctrlG_[i] =
+                    beamTerms_.size()
+                  ? multiTermIntensity(r, 1.0, beamTerms_)
+                  : beamIntensity
+                    (
+                        r, laserRadius, 1.0, Radius_Flavour,
+                        superGaussianOrder
+                    );
+            }
+            // the table carries exactly the laser power at start
+            ctrlG_ /= tableIntegral(ctrlR_, ctrlG_);
+            ctrlG_[nN - 1] = 0;
+            ctrlG_ /= tableIntegral(ctrlR_, ctrlG_);
+            Info<< "    beamController: profile sampled from the case beam"
+                << endl;
+        }
+        if (Pstream::master()) mkDir(dir);
+    }
+
+    if (!active) return;
+
+    const scalar tStart(cd.lookupOrDefault<scalar>("start", 0.1));
+    const scalar tEnd(cd.lookupOrDefault<scalar>("end", GREAT));
+    const scalar interval(cd.lookupOrDefault<scalar>("interval", 0.005));
+    if (t < tStart || t > tEnd || t < ctrlLastUpdate_ + interval - SMALL)
+    {
+        return;
+    }
+    ctrlLastUpdate_ = t;
+
+    const scalar Tiso(cd.lookupOrDefault<scalar>("Tiso", 1660.0));
+    const scalar alphaMin(cd.lookupOrDefault<scalar>("alphaMin", 0.5));
+    const scalar y0(cd.lookupOrDefault<scalar>("surfaceLevel", 0.0));
+    vector dDir(cd.lookupOrDefault<vector>("depthDir", vector(0, 1, 0)));
+    vector xDir(cd.lookupOrDefault<vector>("crossDir", vector(1, 0, 0)));
+    dDir /= mag(dDir);
+    xDir /= mag(xDir);
+    const scalar dx(cd.lookupOrDefault<scalar>("binWidth", 50e-6));
+    const scalar gain(cd.lookupOrDefault<scalar>("gain", 0.05));
+    const scalar maxStep(cd.lookupOrDefault<scalar>("maxStep", 0.1));
+    const scalar smooth(cd.lookupOrDefault<scalar>("smooth", 0.25));
+    const scalar d0(cd.lookupOrDefault<scalar>("depthOffset", 50e-6));
+    const Switch conservePower
+    (
+        cd.lookupOrDefault<Switch>("conservePower", false)
+    );
+    const List<Tuple2<scalar, scalar>> target
+    (
+        cd.get<List<Tuple2<scalar, scalar>>>("targetDepth")
+    );
+    if (target.size() < 2)
+    {
+        FatalErrorInFunction
+            << "beamController: targetDepth needs >= 2 points"
+            << exit(FatalError);
+    }
+
+    const scalar rM = ctrlR_.last();
+    const label nb = label(rM/dx) + 1;
+
+    // ---- measure: projected melt-pool depth per |x| bin ----
+    const volScalarField& T = mesh.lookupObject<volScalarField>("T");
+    const vectorField& Cc = mesh.C();
+    scalarField Dsim(nb, -GREAT);
+    forAll(Cc, celli)
+    {
+        if (T[celli] >= Tiso && alphaFiltered[celli] >= alphaMin)
+        {
+            const scalar xc = mag((Cc[celli] - laserPosition) & xDir);
+            const label b = label(xc/dx);
+            if (b < nb)
+            {
+                Dsim[b] = max(Dsim[b], (Cc[celli] & dDir) - y0);
+            }
+        }
+    }
+    forAll(Dsim, b)
+    {
+        reduce(Dsim[b], maxOp<scalar>());
+    }
+
+    // target on the same bins (linear interpolation, 0 = no melt)
+    scalarField Dexp(nb, -GREAT);
+    const scalar xTmax = target.last().first();
+    for (label b = 0; b < nb; ++b)
+    {
+        const scalar xb = (b + 0.5)*dx;
+        if (xb > xTmax) continue;
+        label i = 0;
+        while (i < target.size() - 2 && xb > target[i + 1].first()) ++i;
+        const scalar x0 = target[i].first(), x1 = target[i + 1].first();
+        const scalar f = min(max((xb - x0)/(x1 - x0 + VSMALL), 0.0), 1.0);
+        Dexp[b] = (1 - f)*target[i].second() + f*target[i + 1].second();
+    }
+
+    // ---- error per bin (log ratio), skip bins molten in neither ----
+    scalarField err(nb, 0);
+    boolList used(nb, false);
+    scalar wSim = 0, wExp = 0, rms = 0;
+    label nUsed = 0;
+    for (label b = 0; b < nb; ++b)
+    {
+        const bool ms = Dsim[b] > -GREAT/2, me = Dexp[b] > -GREAT/2;
+        if (ms) wSim = (b + 1)*dx;
+        if (me) wExp = (b + 1)*dx;
+        if (!ms && !me) continue;
+        const scalar ds = ms ? max(Dsim[b], 0.0) : -0.5*d0;
+        const scalar de = me ? max(Dexp[b], 0.0) : -0.5*d0;
+        err[b] = Foam::log((de + d0)/(ds + d0));
+        used[b] = true;
+        rms += sqr(err[b]);
+        ++nUsed;
+    }
+    if (!nUsed || wSim <= 0)
+    {
+        Info<< "    beamController: no melt pool yet, no update" << endl;
+        return;
+    }
+
+    // ---- map bin errors to radial nodes ----
+    const label nN = ctrlR_.size();
+    const scalar ell = max(rM/(nN - 1), dx);
+    scalarField dlog(nN, 0);
+    forAll(ctrlR_, k)
+    {
+        scalar sw = 0, se = 0;
+        for (label b = 0; b < nb; ++b)
+        {
+            if (!used[b]) continue;
+            const scalar w =
+                Foam::exp(-sqr(((b + 0.5)*dx - ctrlR_[k])/ell));
+            sw += w;
+            se += w*err[b];
+        }
+        // normalise only where the node is well covered by bins, so nodes
+        // far outside both pools are not driven by the edge error
+        dlog[k] = gain*se/max(sw, 1.0);
+    }
+    // neighbour smoothing, then cap
+    scalarField sm(dlog);
+    for (label k = 0; k < nN; ++k)
+    {
+        const scalar l = dlog[max(k - 1, 0)], r = dlog[min(k + 1, nN - 1)];
+        sm[k] = (1 - smooth)*dlog[k] + 0.5*smooth*(l + r);
+    }
+    const scalar Gmax = max(ctrlG_);
+    forAll(ctrlG_, k)
+    {
+        if (k == nN - 1) continue;    // last node stays 0
+        ctrlG_[k] *= Foam::exp(min(max(sm[k], -maxStep), maxStep));
+        ctrlG_[k] = max(ctrlG_[k], 1e-6*Gmax);
+    }
+    const scalar maxScale
+    (
+        cd.lookupOrDefault<scalar>("maxPowerScale", 3.0)
+    );
+    if (conservePower)
+    {
+        ctrlG_ /= tableIntegral(ctrlR_, ctrlG_);
+    }
+    else if (tableIntegral(ctrlR_, ctrlG_) > maxScale)
+    {
+        ctrlG_ *= maxScale/tableIntegral(ctrlR_, ctrlG_);
+    }
+    const scalar scale = tableIntegral(ctrlR_, ctrlG_);
+
+    Info<< "    beamController t = " << t
+        << ": power scale = " << scale
+        << ", centre depth sim/target = " << max(Dsim[0], 0.0)
+        << " / " << max(Dexp[0], 0.0)
+        << ", width sim/target = " << 2*wSim << " / " << 2*wExp
+        << ", rms log error = " << Foam::sqrt(rms/nUsed) << endl;
+
+    // ---- write ----
+    if (Pstream::master())
+    {
+        const bool first = !isFile(dir/"history.dat");
+        std::ofstream hs((dir/"history.dat").c_str(), std::ios::app);
+        std::ofstream ds((dir/"depth.dat").c_str(), std::ios::app);
+        hs.precision(8);
+        ds.precision(6);
+        if (first)
+        {
+            hs << "# t power_scale width_sim width_exp rms | r nodes [m]:";
+            forAll(ctrlR_, k) hs << ' ' << ctrlR_[k];
+            hs << "\n# then G at each node [1/m^2] (I = P*G)\n";
+            ds << "# t | D_sim per bin (bin centre = (i+0.5)*" << dx
+               << " m, -1 = no melt) | then D_target per bin\n";
+        }
+        hs << t << ' ' << scale << ' ' << 2*wSim << ' ' << 2*wExp << ' '
+           << Foam::sqrt(rms/nUsed);
+        forAll(ctrlG_, k) hs << ' ' << ctrlG_[k];
+        hs << '\n';
+        ds << t;
+        forAll(Dsim, b) ds << ' ' << (Dsim[b] > -GREAT/2 ? Dsim[b] : -1.0);
+        forAll(Dexp, b) ds << ' ' << (Dexp[b] > -GREAT/2 ? Dexp[b] : -1.0);
+        ds << '\n';
+
+        OFstream ls(dir/"latest");
+        ls << "// beamController profile at t = " << t
+           << " (I = P*G, power scale " << scale << ")" << nl
+           << "r " << ctrlR_ << token::END_STATEMENT << nl
+           << "G " << ctrlG_ << token::END_STATEMENT << nl;
+        OFstream ts(dir/("profile_" + runTime.timeName()));
+        ts << "r " << ctrlR_ << token::END_STATEMENT << nl
+           << "G " << ctrlG_ << token::END_STATEMENT << nl;
+    }
 }
 
 
