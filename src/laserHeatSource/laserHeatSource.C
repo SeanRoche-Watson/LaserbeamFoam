@@ -1018,6 +1018,10 @@ void laserHeatSource::updateDeposition
 //      crossDir      (1 0 0);  // across the track
 //      binWidth      50e-6;
 //      start 0.1;  end 0.37;  interval 0.005;    // [s]
+//      laserMin (-1 -1 -3e-3); laserMax (1 1 5e-3);  // optional: update only
+//                              // while the laser is in this box
+//      measureMin (-1 -1 -5e-3); measureMax (1 1 5e-3); // optional: only
+//                              // melt in this box counts (e.g. the notch)
 //      gain          0.05;     // per update, on log G
 //      maxStep       0.1;      // cap on |d log G| per update
 //      smooth        0.25;     // neighbour smoothing of d log G
@@ -1126,7 +1130,26 @@ void laserHeatSource::updateBeamController
     const scalar tStart(cd.lookupOrDefault<scalar>("start", 0.1));
     const scalar tEnd(cd.lookupOrDefault<scalar>("end", GREAT));
     const scalar interval(cd.lookupOrDefault<scalar>("interval", 0.005));
-    if (t < tStart || t > tEnd || t < ctrlLastUpdate_ + interval - SMALL)
+    // optional spatial gating: update only while the laser is inside
+    // [laserMin, laserMax], and measure only cells inside
+    // [measureMin, measureMax] (e.g. the notch section of the track)
+    const vector bigV(GREAT, GREAT, GREAT);
+    const vector lMin(cd.lookupOrDefault<vector>("laserMin", -bigV));
+    const vector lMax(cd.lookupOrDefault<vector>("laserMax", bigV));
+    const vector mMin(cd.lookupOrDefault<vector>("measureMin", -bigV));
+    const vector mMax(cd.lookupOrDefault<vector>("measureMax", bigV));
+    auto inBox = [](const vector& p, const vector& a, const vector& b)
+    {
+        return
+            p.x() >= a.x() && p.x() <= b.x()
+         && p.y() >= a.y() && p.y() <= b.y()
+         && p.z() >= a.z() && p.z() <= b.z();
+    };
+    if
+    (
+        t < tStart || t > tEnd || t < ctrlLastUpdate_ + interval - SMALL
+     || !inBox(laserPosition, lMin, lMax)
+    )
     {
         return;
     }
@@ -1168,7 +1191,11 @@ void laserHeatSource::updateBeamController
     scalarField Dsim(nb, -GREAT);
     forAll(Cc, celli)
     {
-        if (T[celli] >= Tiso && alphaFiltered[celli] >= alphaMin)
+        if
+        (
+            T[celli] >= Tiso && alphaFiltered[celli] >= alphaMin
+         && inBox(Cc[celli], mMin, mMax)
+        )
         {
             const scalar xc = mag((Cc[celli] - laserPosition) & xDir);
             const label b = label(xc/dx);
