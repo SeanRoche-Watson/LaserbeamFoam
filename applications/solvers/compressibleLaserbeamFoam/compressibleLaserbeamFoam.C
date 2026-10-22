@@ -45,6 +45,7 @@ Authors
 #include "turbulentFluidThermoModel.H"
 #include "pimpleControl.H"
 #include "fvOptions.H"
+#include "Function1.H"
 #include "CorrectPhi.H"
 
 #include "laserHeatSource.H"

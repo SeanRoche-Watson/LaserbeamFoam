@@ -13,6 +13,16 @@ else
        /(Foam::pow(epsilon1, 3) + DarcyConstantsmall);
 }
 
+if (darcyScalePtr)
+{
+    const scalar darcyScale =
+        Foam::max(darcyScalePtr->value(runTime.value()), scalar(0));
+
+    DC *= darcyScale;
+
+    Info<< "Darcy scale = " << darcyScale << endl;
+}
+
 
 Marangoni = condensate*epsilon1*mixture.MarangoniForce(T);
 
