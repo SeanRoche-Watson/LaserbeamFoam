@@ -379,6 +379,15 @@ inline void check
                 << runTime.timeName() << " for inspection" << endl;
             crashStage::set(std::string("health check: writing fields after failure at ") + stage);
             runTime.writeNow();
+
+            // Every processor must finish writing before anyone aborts:
+            // FatalError -> MPI_Abort kills ranks that are still writing,
+            // leaving truncated files on the slower node. A collective
+            // reduce here is the synchronisation point.
+            const label nWritten =
+                returnReduce(label(1), sumOp<label>());
+            Info<< "[health] fields written on " << nWritten
+                << " processor(s) at time " << runTime.timeName() << endl;
         }
 
         if (L.abortOnNonFinite || L.stopOnViolation)
