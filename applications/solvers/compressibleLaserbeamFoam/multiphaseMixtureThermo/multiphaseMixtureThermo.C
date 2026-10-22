@@ -1484,6 +1484,32 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
         phasedictionary.getOrDefault<scalar>("phaseChangeVolLimit", 0.1)
     );
 
+    // what to do in cells where the vapour EOS is denser than the liquid
+    // (perfect gas at GPa pressure and moderate T), where 1/rhoVap - 1/rhoLiq
+    // <= 0 and the volume limit below is undefined:
+    //   original        - floor dVspec at VSMALL, as the code always did.
+    //                     etaVol*rDeltaT/VSMALL overflows -> SIGFPE as soon
+    //                     as such a cell appears (the 1.9 ns 10 mJ crash)
+    //   skipVolumeLimit - no volume limit in those cells, rate otherwise
+    //                     unchanged (energy/mass limits still apply)
+    //   noPhaseChange   - no evaporation/condensation in those cells
+    // set denseVapourTreatment in constant/thermophysicalProperties
+    const word denseVapMode
+    (
+        phasedictionary.getOrDefault<word>("denseVapourTreatment", "original")
+    );
+    label denseMode = 0;
+    if (denseVapMode == "original")             denseMode = 0;
+    else if (denseVapMode == "skipVolumeLimit") denseMode = 1;
+    else if (denseVapMode == "noPhaseChange")   denseMode = 2;
+    else
+    {
+        FatalIOErrorInFunction(phasedictionary)
+            << "Unknown denseVapourTreatment '" << denseVapMode
+            << "'. Valid: original, skipVolumeLimit, noPhaseChange"
+            << exit(FatalIOError);
+    }
+
     // old symmetric Hertz-Knudsen accomodation coefficient, kept as the falback
     // default so ancient dicts still run. dont use it symmetric though, see below
 
@@ -2067,26 +2093,36 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                                 //  this one scales with 1/dt so it must stay
                                 //  under maxPhaseChangeFraction (see note at
                                 //  the etaVol read)
-                                //  If the vapour EOS is denser than the
-                                //  liquid, evaporation makes no volume
-                                //  here and the limit does not apply.
-                                //  (The old max(dV, VSMALL) floor gave
-                                //  etaVol*rDeltaT/1e-300 > DBL_MAX, i.e.
-                                //  a SIGFPE overflow, for any such cell.)
-                                const scalar dVspec =
+                                //  Cells where the vapour EOS is denser
+                                //  than the liquid are counted always and
+                                //  handled per denseVapourTreatment (see
+                                //  where it is read)
+                                const scalar dVraw =
                                     1.0/rhoVapI[celli] - 1.0/rhoLiqI[celli];
-                                if (dVspec > dVspecMin)
-                                {
-                                    const scalar rMaxV = etaVol*rDeltaT/dVspec;
-                                    if (rc >  rMaxV) { rc =  rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
-                                    if (rc < -rMaxV) { rc = -rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
-                                }
-                                else
+                                const bool dense = !(dVraw > dVspecMin);
+                                if (dense)
                                 {
                                     if (iDense < 0) iDense = celli;
                                     ++nDense;
                                     if (mag(rcKinetic) > 1e-3) ++nDenseActive;
                                 }
+
+                                if (denseMode == 0 || !dense)
+                                {
+                                    // original behaviour (VSMALL floor)
+                                    const scalar dVspec =
+                                        Foam::max(dVraw, VSMALL);
+                                    const scalar rMaxV = etaVol*rDeltaT/dVspec;
+                                    if (rc >  rMaxV) { rc =  rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
+                                    if (rc < -rMaxV) { rc = -rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
+                                }
+                                else if (denseMode == 2)
+                                {
+                                    // noPhaseChange
+                                    rc = 0.0;
+                                    kPkeepI[celli] = 0.0;
+                                }
+                                // denseMode == 1 (skipVolumeLimit): no volume limit
                             }
                         }
 
@@ -2101,8 +2137,9 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                                 Info<< "    " << pcTag << ": vapour denser "
                                     << "than liquid (EOS) in " << nDense
                                     << " cell(s), " << nDenseActive
-                                    << " with a non-trivial rate; volume "
-                                    << "limit skipped there" << endl;
+                                    << " with a non-trivial rate"
+                                    << " (denseVapourTreatment "
+                                    << denseVapMode << ")" << endl;
 
                                 const label reporter = returnReduce
                                 (
