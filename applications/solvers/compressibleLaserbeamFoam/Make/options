@@ -1,4 +1,6 @@
 EXE_INC = \
+    -g \
+    -ImultiphaseMixtureThermo/crashStage \
     -I./VoF \
     -I../../../src/MTHD/lnInclude \
     -I../../../src/laserHeatSource/lnInclude \

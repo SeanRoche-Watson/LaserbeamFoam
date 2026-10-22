@@ -46,6 +46,8 @@ Authors
 #include "pimpleControl.H"
 #include "fvOptions.H"
 #include "Function1.H"
+#include "crashStage.H"
+#include "solverHealth.H"
 #include "CorrectPhi.H"
 
 #include "laserHeatSource.H"
@@ -78,6 +80,20 @@ int main(int argc, char *argv[])
     // bool bRestartFirstLoop = false; <- declared within createFields.H
     #include "createFields.H"
 
+    // Crash reporting: on SIGFPE/SIGSEGV each processor prints the last
+    // stage it reached (see crashStage.H) before OpenFOAM's stack trace.
+    crashStage::install(Pstream::myProcNo());
+    Info<< "crashDiagnostics: signal reporter installed "
+        << "(stage markers + DIAGNOSTICS health checks)" << endl;
+
+    // Field health check at a named stage; see solverHealth.H
+    #define HEALTH_CHECK(stageName)                                           \
+        solverHealth::check                                                   \
+        (                                                                     \
+            stageName, healthLimits, runTime, mesh, T, p, p_rgh, rho, U,      \
+            mixture                                                           \
+        )
+
     #include "initCorrectPhi.H"
     #include "createUfIfPresent.H"
 
@@ -100,6 +116,8 @@ int main(int argc, char *argv[])
     while (runTime.run())
     {
 
+        crashStage::set("time loop: reading controls / setDeltaT");
+
         #include "readMeltingControls.H"
         #include "readDyMControls.H"
 
@@ -112,6 +130,8 @@ int main(int argc, char *argv[])
 
         Info<< "Time = " << runTime.timeName() << nl << endl;
 
+        crashStage::set("time " + runTime.timeName() + ": start of step");
+
         // --- Pressure-velocity PIMPLE corrector loop
         while (pimple.loop())
         {
@@ -120,6 +140,11 @@ int main(int argc, char *argv[])
             {
                 scalar timeBeforeMeshUpdate = runTime.elapsedCpuTime();
 
+                crashStage::set
+                (
+                    "time " + runTime.timeName()
+                  + ": mesh.update (AMR refine/unrefine/balance, field mapping)"
+                );
                 mesh.update();
 
                 if (mesh.changing())
@@ -149,7 +174,16 @@ int main(int argc, char *argv[])
                     }
 
                     
+                    crashStage::set
+                    (
+                        "time " + runTime.timeName()
+                      + ": mixture.correct() after mesh change"
+                    );
                     mixture.correct();
+
+                    // AMR remapping is a recurring crash suspect: check the
+                    // freshly mapped fields before anything uses them
+                    HEALTH_CHECK("after mesh.update (mesh changed)");
 
                     if (checkMeshCourantNo)
                     {
@@ -166,18 +200,31 @@ int main(int argc, char *argv[])
             {
                 rho.oldTime() = rho;   // set once per time step
 
+                HEALTH_CHECK("start of step, before alpha/phase-change solve");
+
+                crashStage::set
+                (
+                    "time " + runTime.timeName()
+                  + ": mixture.solve (alphas + phase change)"
+                );
                 vDot = mixture.solve(&mass_dot, &vDotP);
                 vDot.correctBoundaryConditions();
                 mass_dot.correctBoundaryConditions();
                 vDotP.correctBoundaryConditions();
 
 
+                crashStage::set
+                (
+                    "time " + runTime.timeName()
+                  + ": update.H (condensate, solidus/liquidus, resistivity)"
+                );
                 #include "update.H"
 
-
+                HEALTH_CHECK("after alpha/phase-change solve");
             }
 
             
+            crashStage::set("time " + runTime.timeName() + ": rho = mixture.rho()");
             rho = mixture.rho();
 
             
@@ -185,6 +232,11 @@ int main(int argc, char *argv[])
             // Ray-trace expensive: evaluate once per time step.
             if (pimple.firstIter())
             {
+                crashStage::set
+                (
+                    "time " + runTime.timeName()
+                  + ": laser ray tracing / deposition"
+                );
                 laser.updateDeposition
                 (
                     condensateFiltered, n_filtered, electrical_resistivity
@@ -193,18 +245,26 @@ int main(int argc, char *argv[])
 
             // PIMPLE Section ((U-p)-H-T coupling)
 
+            crashStage::set("time " + runTime.timeName() + ": UEqn");
             #include "UEqn.H"
             if (mthd.valid())
             {
+                crashStage::set("time " + runTime.timeName() + ": MTHD solve");
                 mthd->solve(phi, U);
             }
+            crashStage::set("time " + runTime.timeName() + ": TEqn");
             #include "TEqn.H"
+
+            HEALTH_CHECK("after TEqn");
 
             // --- Pressure corrector loop
             while (pimple.correct())
             {
+                crashStage::set("time " + runTime.timeName() + ": pEqn");
                 #include "pEqn.H"
             }
+
+            HEALTH_CHECK("after pEqn");
 
             if (pimple.turbCorr())
             {
@@ -212,6 +272,7 @@ int main(int argc, char *argv[])
             }
         }
 
+        crashStage::set("time " + runTime.timeName() + ": writing");
         mixture.writeOldTimeValues();
         #include "writeOldTimeStorage.H"
 

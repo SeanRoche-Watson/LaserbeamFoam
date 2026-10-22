@@ -34,3 +34,10 @@ autoPtr<Function1<scalar>> darcyScalePtr
 (
     Function1<scalar>::NewIfPresent("darcyScale", meltingDict)
 );
+
+// Field health checks (optional DIAGNOSTICS dict in fvSolution, see
+// solverHealth.H). Re-read every time step.
+const Foam::solverHealth::Limits healthLimits
+(
+    Foam::solverHealth::readLimits(solutionDict)
+);
