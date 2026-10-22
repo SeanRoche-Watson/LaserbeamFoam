@@ -257,6 +257,20 @@ int main(int argc, char *argv[])
 
             HEALTH_CHECK("after TEqn");
 
+            // Option closureEveryOuter (constant/thermophysicalProperties):
+            // refresh the volume-closure source with the current p and T on
+            // outer correctors after the first. No-op when the option is off
+            // or with nOuterCorrectors 1.
+            if (!pimple.firstIter())
+            {
+                crashStage::set
+                (
+                    "time " + runTime.timeName()
+                  + ": closure update (outer corrector)"
+                );
+                mixture.updateClosure(vDot, vDotP, p_rgh, pimple.corr());
+            }
+
             // --- Pressure corrector loop
             while (pimple.correct())
             {

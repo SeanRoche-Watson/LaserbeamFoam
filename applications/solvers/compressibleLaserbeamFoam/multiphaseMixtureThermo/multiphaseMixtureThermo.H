@@ -177,6 +177,11 @@ private:
         
         label curTimeIndex_;
 
+        //- Closure part of vDot / vDotP from the last evaluation
+        //  (solveAlphas or updateClosure), internal field
+        scalarField closureExpl_;
+        scalarField closureKp_;
+
 
     // Private Member Functions
 
@@ -512,6 +517,18 @@ public:
         (
             volScalarField* massdotterm,
             volScalarField* vDotPptr = nullptr
+        );
+
+        //- Option (closureEveryOuter in thermophysicalProperties):
+        //  re-evaluate the volume-closure feedback in vDot / vDotP with the
+        //  current p and T on outer correctors after the first. Does
+        //  nothing when the option is off.
+        void updateClosure
+        (
+            volScalarField& vDot,
+            volScalarField& vDotP,
+            const volScalarField& p_rgh,
+            const label outerIter
         );
 };
 

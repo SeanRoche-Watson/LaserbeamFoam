@@ -3186,6 +3186,13 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
             }
         }
 
+        // closure part of vDot / vDotP, kept so updateClosure() can swap it
+        // out on later outer correctors (closureEveryOuter)
+        closureExpl_.setSize(mesh_.nCells());
+        closureExpl_ = scalar(0);
+        closureKp_.setSize(mesh_.nCells());
+        closureKp_ = scalar(0);
+
         if (closureRelax > 0)
         {
             const scalarField& sI = sumImplied.primitiveField();
@@ -3210,6 +3217,9 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
             }
 
             PCR.primitiveFieldRef() += src;
+            // p_rgh is still at its old-time value here, so the explicit
+            // closure part of vDot is just src
+            closureExpl_ = src;
 
             if (vDotPptr)
             {
@@ -3235,8 +3245,8 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                     ++i;
                 }
 
-                vDotPptr->primitiveFieldRef() +=
-                    closureRelax*rDeltaT*kPc*unclampedC;
+                closureKp_ = closureRelax*rDeltaT*kPc*unclampedC;
+                vDotPptr->primitiveFieldRef() += closureKp_;
             }
 
             reduce(nClampC, sumOp<label>());
@@ -3327,6 +3337,158 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
     calcAlphas();
     crashStage::set("solveAlphas: done");
     return tPCR;
+}
+
+
+void Foam::multiphaseMixtureThermo::updateClosure
+(
+    volScalarField& vDot,
+    volScalarField& vDotP,
+    const volScalarField& p_rgh,
+    const label outerIter
+)
+{
+    // Option: re-evaluate the volume-closure feedback on every PIMPLE outer
+    // corrector after the first, using the current p and T. The partial
+    // masses c_i stay as transported in solveAlphas (first corrector only);
+    // only the EOS densities rho_i(p, T) are refreshed, so the outer
+    // correctors drive sum_i c_i/rho_i(p, T) towards 1 instead of leaving
+    // the first-corrector source in place.
+    //
+    // constant/thermophysicalProperties:
+    //     closureEveryOuter      false;   // default: original behaviour
+    //     closureRelax           0.5;     // as solveAlphas
+    //     closureVolLimit        0.02;    // as solveAlphas
+    //     closureOuterVolLimit   <closureVolLimit>; // cap per outer corrector
+
+    const dictionary& dict = *this;
+
+    if (!dict.getOrDefault<bool>("closureEveryOuter", false))
+    {
+        return;
+    }
+
+    crashStage::set("updateClosure: closure feedback, outer corrector");
+
+    const label nCells = mesh_.nCells();
+
+    if
+    (
+        closureExpl_.size() != nCells
+     || closureKp_.size() != nCells
+     || vDot.primitiveField().size() != nCells
+    )
+    {
+        WarningInFunction
+            << "mesh changed since solveAlphas (moveMeshOuterCorrectors?);"
+            << " skipping closure update on outer corrector " << outerIter
+            << endl;
+        return;
+    }
+
+    const scalar rDeltaT = 1.0/mesh_.time().deltaTValue();
+
+    const scalar closureRelax =
+        dict.getOrDefault<scalar>("closureRelax", 0.5);
+    const scalar closureVolLimit =
+        dict.getOrDefault<scalar>("closureVolLimit", 0.02);
+    const scalar closureOuterVolLimit =
+        dict.getOrDefault<scalar>("closureOuterVolLimit", closureVolLimit);
+
+    // same floor as solveAlphas
+    const scalar rhoMinRec = 1e-3;
+
+    // implied volume  sum_i c_i/rho_i(p, T)  and  kP = sum_i c_i psi_i/rho_i^2
+    scalarField sI(nCells, 0.0);
+    scalarField kPc(nCells, 0.0);
+    {
+        label i = 0;
+        for (const phaseModel& ph : phases_)
+        {
+            const tmp<volScalarField> tRho(ph.thermo().rho());
+            const scalarField& rhoI = tRho().primitiveField();
+            const scalarField& psiI = ph.thermo().psi().primitiveField();
+            const scalarField& cI   = c_[i].primitiveField();
+
+            forAll(sI, celli)
+            {
+                const scalar r = Foam::max(rhoI[celli], rhoMinRec);
+                const scalar c = Foam::max(cI[celli], scalar(0));
+                sI[celli]  += c/r;
+                kPc[celli] += c*psiI[celli]/Foam::sqr(r);
+            }
+            ++i;
+        }
+    }
+
+    // same boundary mask as solveAlphas
+    List<bool> closureMask(nCells, false);
+    {
+        const wordList maskPatchNames
+        (
+            dict.getOrDefault<wordList>("closureMaskPatches", wordList())
+        );
+        for (const word& pn : maskPatchNames)
+        {
+            const label patchi = mesh_.boundaryMesh().findPatchID(pn);
+            if (patchi < 0) continue;
+            for (const label celli : mesh_.boundary()[patchi].faceCells())
+            {
+                closureMask[celli] = true;
+            }
+        }
+    }
+
+    const scalarField& pI  = p_rgh.primitiveField();
+    const scalarField& p0I = p_rgh.oldTime().primitiveField();
+
+    scalarField expl(nCells, 0.0);
+    scalarField kP(nCells, 0.0);
+    label nClamp = 0;
+
+    if (closureRelax > 0)
+    {
+        const scalar srcMax = closureOuterVolLimit*rDeltaT;
+
+        forAll(expl, celli)
+        {
+            if (closureMask[celli]) continue;
+
+            scalar s = closureRelax*(sI[celli] - 1.0)*rDeltaT;
+            bool clamped = false;
+            if (s >  srcMax) { s =  srcMax; clamped = true; }
+            if (s < -srcMax) { s = -srcMax; clamped = true; }
+
+            if (clamped)
+            {
+                ++nClamp;
+                expl[celli] = s;
+            }
+            else
+            {
+                // linearise about the current p_rgh: pEqn applies
+                // vDotP*(p_rgh - p_rgh.oldTime()), so shift the explicit
+                // part to give  s - kP*(p_rgh_new - p_rgh_current)
+                kP[celli] = closureRelax*rDeltaT*kPc[celli];
+                expl[celli] = s + kP[celli]*(pI[celli] - p0I[celli]);
+            }
+        }
+    }
+
+    // swap the previous closure part for the new one, phase change untouched
+    vDot.primitiveFieldRef()  += expl - closureExpl_;
+    vDotP.primitiveFieldRef() += kP - closureKp_;
+    vDot.correctBoundaryConditions();
+    vDotP.correctBoundaryConditions();
+
+    closureExpl_ = expl;
+    closureKp_ = kP;
+
+    reduce(nClamp, sumOp<label>());
+    Info<< "closure feedback (outer corrector " << outerIter
+        << "): defect min = " << gMin(sI) << ", max = " << gMax(sI)
+        << ", max|dev| = " << gMax(mag(sI - 1.0)())
+        << ", capped cells = " << nClamp << endl;
 }
 
 
