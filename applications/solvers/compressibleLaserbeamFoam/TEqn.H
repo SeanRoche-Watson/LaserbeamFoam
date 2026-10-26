@@ -20,6 +20,77 @@
 
     TRHS*=0.0;//=TRHSzero;
 
+    // ---- Kinetic-energy / pressure-work terms: option ----------------------
+    // PIMPLE { kineticEnergyTerms full | contErr | none; }
+    //   full    (default) original: div(phi,p) + ddt(rho,K) + div(rhoPhi,K)
+    //   contErr full minus contErr*K, contErr = ddt(rho) + div(rhoPhi), as in
+    //           ESI compressibleInterFoam. With rho from the EOS and rhoPhi
+    //           from the c_i transport, contErr is not ~0 where the volume
+    //           closure is off, and the full form turns K*contErr into heat.
+    //   none    internal-energy form: p*div(U) only (ESI totalInternalEnergy
+    //           false). No kinetic-energy terms at all.
+    const word keMode
+    (
+        pimple.dict().getOrDefault<word>("kineticEnergyTerms", "full")
+    );
+    if (keMode != "full" && keMode != "contErr" && keMode != "none")
+    {
+        FatalErrorInFunction
+            << "kineticEnergyTerms " << keMode
+            << " unknown, use full, contErr or none" << exit(FatalError);
+    }
+
+    const volScalarField contErrT
+    (
+        "contErrT",
+        fvc::ddt(rho) + fvc::div(mixture.rhoPhi())
+    );
+
+    tmp<volScalarField> tWork;
+    if (keMode == "none")
+    {
+        tWork = p*fvc::div(fvc::absolute(phi, U));
+    }
+    else
+    {
+        tWork =
+            fvc::div(fvc::absolute(phi, U), p)
+          + fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K);
+
+        if (keMode == "contErr")
+        {
+            tWork.ref() -= contErrT*K;
+        }
+    }
+    const volScalarField& workTerm = tWork();
+
+    // diagnostic, any mode: the T change per step that K*contErr alone
+    // would give (the part the full form puts into T and contErr removes)
+    {
+        const volScalarField rCvDiag(mixture.rCv());
+        const scalarField dTce
+        (
+            mag(contErrT.primitiveField()*K.primitiveField())
+           *rCvDiag.primitiveField()*runTime.deltaTValue()
+           /max(rho.primitiveField(), scalar(1e-3))
+        );
+        scalar dMax = -1;
+        label iMax = -1;
+        forAll(dTce, celli)
+        {
+            if (dTce[celli] > dMax) { dMax = dTce[celli]; iMax = celli; }
+        }
+        const scalar gMaxV = returnReduce(dMax, maxOp<scalar>());
+        Info<< "TEqn: kineticEnergyTerms " << keMode
+            << ", max |K*contErr| as dT per step = " << gMaxV << " K" << endl;
+        if (iMax >= 0 && dMax == gMaxV && gMaxV > 100)
+        {
+            Pout<< "TEqn:   at " << mesh.C()[iMax]
+                << ", T = " << T[iMax] << ", rho = " << rho[iMax]
+                << ", |U| = " << mag(U[iMax]) << endl;
+        }
+    }
+
     // no spurious mushy drag in gas
     const dimensionedScalar cMinMelt   ("cMinMelt",    dimless, 1e-4); // div guard
     const dimensionedScalar cThreshMelt("cThreshMelt", dimless, 1e-2); // mask ramp
@@ -71,10 +142,7 @@ TRHS.correctBoundaryConditions();
       + fvm::div(mixture.rhoPhi(), T)
       - fvm::Sp(fvc::ddt(rho) + fvc::div(mixture.rhoPhi()), T)
       - fvm::laplacian(mixture.alphaEff(turbulence->mut()), T)
-      + (
-            fvc::div(fvc::absolute(phi, U), p)
-          + fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K)
-        )*mixture.rCv()
+      + workTerm*mixture.rCv()
 
         ==
           mixture.rCv()*laser.deposition()
