@@ -1,0 +1,108 @@
+#!/bin/bash
+# Planar 2D plume edge for compressibleLaserbeamFoam: a half-disc of Fe vapour
+# on a no-slip wall (y = 0, gas at y < 0 as in the 3D case) expanding into the
+# "air" phase at 1 bar, 300 K. Tests the vapour/air contact where the 3D runs
+# fail (dense vapour sliding along the surface at the plume edge), with the
+# EOS density and the transported mass free to disagree, which 1D cannot do.
+#
+#   ./Allrun P:contErr:o10+nc+eb P:contErr:o10+nc+eb+mm      case:mode:variants
+#   NP=6 ./Allrun ...                     run on NP ranks (decomposePar/reconstructPar)
+#   END=1e-7 WRITE=5e-9 ./Allrun ...      end time and write interval (default 6e-8, 2e-9)
+#
+# Cases (160 x 100 cells of 3.125 um, 500 x 312.5 um, closed walls):
+#   P    vapour half-disc r = 30 um, 1e8 Pa (1000 bar), 12000 K (the 3D plume state)
+#   Pf   same at 2x resolution (320 x 200 cells)
+# modes: full | contErr | none | dissipative (kineticEnergyTerms)
+# variants (join with '+'), as in ../compressibleLaserbeamFoam_shockTube1D/Allrun:
+#   o5 / o10 / o5nr / nr   outer correctors / no relaxation
+#   eb / ebi               energy budget (final corrector / every corrector)
+#   nc                     gasPackingCap false
+#   mm                     momentumDensity mass (cc-mass-momentum build)
+#   mc                     mixtureCv mass
+#   vl                     div(phi,alpha) Gauss vanLeer01, no libROUNDSchemes
+#   co05                   maxCo 0.05 (as in the 3D restart that got past 5.36 ns)
+#
+# Results: runs/<case>_<mode>_<variants>/ (reconstructed), log.solver
+# Plots:   python3 plumeEdge.py <outdir> runs/<a> runs/<b>
+# Fronts:  ../tools/plumeFront.py runs/<a>
+
+cd "$(dirname "$0")" || exit 1
+
+if ! command -v compressibleLaserbeamFoam >/dev/null; then
+    echo "compressibleLaserbeamFoam not found: source of2506.sh first"; exit 1
+fi
+
+NP=${NP:-1}
+END=${END:-6e-8}
+WRITE=${WRITE:-2e-9}
+RUNS=("$@")
+[ ${#RUNS[@]} -eq 0 ] && RUNS=(P:contErr:o10+nc+eb P:contErr:o10+nc+eb+mm)
+
+for r in "${RUNS[@]}"; do
+    IFS=: read -r case_ mode variant <<< "$r"
+    case "$case_" in
+        P)  PL=1e8; TL=12000; R0=3e-5; REF=1 ;;
+        Pf) PL=1e8; TL=12000; R0=3e-5; REF=2 ;;
+        *)  echo "unknown case $case_"; continue ;;
+    esac
+    d=runs/${case_}_${mode}${variant:+_$variant}
+    echo "=== $d  (pL=$PL Pa, TL=$TL K, r0=$R0 m, mode $mode${variant:+, variant $variant}, $NP ranks)"
+    rm -rf "$d"; mkdir -p runs; cp -r template "$d"
+    if [ "$REF" = 2 ]; then
+        sed -i 's/(160 100 1)/(320 200 1)/' "$d/system/blockMeshDict"
+        sed -i -E 's/^(maxDeltaT\s+).*;/\12.5e-11;/' "$d/system/controlDict"
+    fi
+    sed -i "s/@END@/$END/; s/@WRITE@/$WRITE/" "$d/system/controlDict"
+    sed -i "s/@PL@/$PL/g; s/@TL@/$TL/g; s/@R0@/$R0/" "$d/system/setFieldsDict"
+    sed -i "s/@NP@/$NP/" "$d/system/decomposeParDict"
+    sed -i "s/@MODE@/$mode/" "$d/system/fvSolution"
+    bad=0
+    for v in ${variant//+/ }; do
+        case "$v" in
+            o5|o10|o5nr)
+                n=${v%nr}; n=${n#o}
+                sed -i -E "/^PIMPLE/,/^}/ s/^(\s*nOuterCorrectors\s+)[0-9]+;/\1$n;/" "$d/system/fvSolution"
+                sed -i -E "/^PIMPLE/,/^}/ s/^(\s*)residualControl(\s|$)/\1residualControl_off\2/" "$d/system/fvSolution" ;;&
+            nr|o5nr)
+                sed -i -E "/^relaxationFactors/,/^}/ s/(p_rgh|\"U\.\*\"|\"T\.\*\")(\s+)[0-9.]+;/\1\21;/" "$d/system/fvSolution" ;;
+            mc)
+                sed -i -E 's/^(P0\s.*)$/\1\nmixtureCv\tmass;/' "$d/constant/thermophysicalProperties" ;;
+            eb)
+                sed -i -E 's/^(\s*stopOnViolation\s+true;.*)$/\1\n    energyBudget      true;\n    energyBudgetMinDT 200;/' "$d/system/fvSolution" ;;
+            ebi)
+                sed -i -E 's/^(\s*stopOnViolation\s+true;.*)$/\1\n    energyBudget      true;\n    energyBudgetEveryIter true;\n    energyBudgetMinDT 200;/' "$d/system/fvSolution" ;;
+            nc)
+                sed -i -E 's/^(P0\s.*)$/\1\ngasPackingCap\tfalse;/' "$d/constant/thermophysicalProperties"
+                grep -q "^gasPackingCap" "$d/constant/thermophysicalProperties" || { echo "  could not set gasPackingCap"; bad=1; } ;;
+            mm)
+                sed -i -E "/^PIMPLE/,/^}/ s/^(\s*kineticEnergyTerms\s.*)$/\1\n    momentumDensity          mass;/" "$d/system/fvSolution"
+                grep -q "momentumDensity" "$d/system/fvSolution" || { echo "  could not set momentumDensity"; bad=1; } ;;
+            vl)
+                sed -i -E 's/^(\s*div\(phi,alpha\)\s+)Gauss ROUNDAplus01;/\1Gauss vanLeer01;/' "$d/system/fvSchemes"
+                sed -i -E '/libROUNDSchemes\.so/d' "$d/system/controlDict" ;;
+            co05)
+                sed -i -E 's/^(maxCo\s+)[0-9.eE+-]+;/\10.05;/' "$d/system/controlDict" ;;
+            o5|o10) ;;
+            *) echo "  unknown variant $v"; bad=1 ;;
+        esac
+    done
+    [ $bad = 1 ] && continue
+    cp -r "$d/0.orig" "$d/0"
+    (
+        cd "$d" || exit 1
+        blockMesh > log.blockMesh 2>&1 || { echo "  blockMesh failed, see $d/log.blockMesh"; exit 1; }
+        setFields > log.setFields 2>&1 || { echo "  setFields failed, see $d/log.setFields"; exit 1; }
+        start=$(date +%s)
+        if [ "$NP" -gt 1 ]; then
+            decomposePar > log.decomposePar 2>&1 || { echo "  decomposePar failed"; exit 1; }
+            timeout 12h mpirun -np "$NP" compressibleLaserbeamFoam -parallel > log.solver 2>&1
+            ec=$?
+            reconstructPar > log.reconstructPar 2>&1 || echo "  reconstructPar failed, see $d/log.reconstructPar"
+        else
+            timeout 12h compressibleLaserbeamFoam > log.solver 2>&1
+            ec=$?
+        fi
+        echo "  solver exit $ec after $(( $(date +%s) - start )) s, last $(grep '^Time = ' log.solver | tail -1)"
+        grep -m1 "PROBLEM DETECTED" log.solver | sed 's/^/  /'
+    )
+done

@@ -83,3 +83,17 @@ In the shock tube (no condensed phases) `cPackTol 1e3;` removes only the inflow 
   So in 3D the EOS density vs transported mass mismatch (absent in 1D) drives spurious acceleration.
 - 40cd28c7 adds a "momentum check" line to each [budget] block (rho dU/dt vs |grad p|, rho/sum c).
 - Next: option momentumDensity eos|mass (use sum c_i in momentum, KE and T terms), test 1D + new 2D plume-edge case.
+
+## momentumDensity mass (cc-mass-momentum @ 33e3963f), 28 Oct; details in RESULTS_mass_momentum.md
+- 3D 10 mJ restart with mass + contErr + gasPackingCap false + o10 + maxCo 0.05 is the first run past the
+  plume-edge failure (past 5.36 ns, no T-floored cells, continuity error ~18 vs ~1e11 kg/m3/s).
+- **eos (default):** bit-identical to packing2.
+- **1D mass:** results change <= 2% and toward exact. Energy drift: A 0.39%, Af 0.22% (eos 0.16%; the extra
+  is E_kin closer to exact), B -0.22%. ddt(rhoM)+div(rhoPhi) is at the purge level (dt x error <= 1e-10).
+- **Stress test (B full, cap on):** eos stops at 26.7 ns (resCtrl) and 10.15 ns (o5nr) as rho/rhoM - 1
+  climbs to 0.45-1.4; mass reaches 60 ns in both, with the mismatch <= 0.18.
+- **2D plume edge (new tutorial):** stagnant 1000 bar / 12 kK half-disc. Stable to 20 ns in both modes,
+  practically identical, mismatch ~4%. Too benign to reproduce the 3D failure.
+- **New tools:** tutorials/tools/plumeFront.py (front tracker for the 3D run on CSD3) and
+  LITERATURE_plume_front.md. The expected shock at 10-50 ns for 10 mJ in argon is ~0.25-0.55 mm.
+- Recommended now: momentumDensity mass, kineticEnergyTerms contErr, gasPackingCap false, o10 (relaxation 0.5).

@@ -1,0 +1,60 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      blockMeshDict;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+// Planar 2D plume edge: 160 x 100 cells of 3.125 um (the finest 3D AMR level).
+// Gas below the surface (y < 0) as in the 3D case; the surface y = 0 is a
+// no-slip adiabatic wall. The far-field boundaries are closed walls too, far
+// enough (250 / 312 um) that the blast does not reach them before ~60 ns.
+convertToMeters 1e-6;
+
+xmin  -250;
+xmax   250;
+ymin  -312.5;
+ymax     0;
+h      1.5625;   // half cell thickness in z (one cell, empty)
+
+vertices
+(
+    ($xmin $ymin -$h) ($xmax $ymin -$h) ($xmax $ymax -$h) ($xmin $ymax -$h)
+    ($xmin $ymin  $h) ($xmax $ymin  $h) ($xmax $ymax  $h) ($xmin $ymax  $h)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (160 100 1) simpleGrading (1 1 1)
+);
+
+boundary
+(
+    surface
+    {
+        type wall;
+        faces ( (3 7 6 2) );
+    }
+    farField
+    {
+        type wall;
+        faces ( (0 4 7 3) (1 2 6 5) (0 1 5 4) );
+    }
+    frontAndBack
+    {
+        type empty;
+        faces ( (0 3 2 1) (4 5 6 7) );
+    }
+);
+
+// ************************************************************************* //

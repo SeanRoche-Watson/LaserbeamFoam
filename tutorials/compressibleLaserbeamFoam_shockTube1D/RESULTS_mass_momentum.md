@@ -1,10 +1,8 @@
 # momentumDensity eos | mass (branch cc-mass-momentum), 27 Oct 2026
 
-## Status: implemented and self-reviewed, NOT compiled or run
-The cloud environment used for this could not run OpenFOAM. dl.openfoam.com is blocked by its network proxy
-(HTTP 403), so the ESI apt repo could not be added. The Ubuntu archive only has OpenFOAM v1912. The v2506
-source tarball could be downloaded from SourceForge, but compiling it was not permitted there. **So nothing below
-has been compiled.** Expect small compile fixes on the first wmake.
+## Status: compiled and tested (28 Oct 2026); results at the end of this file
+It compiled cleanly on CSD3 and in WSL (ESI v2506), with no compile fixes; the only warning is an unused
+`rhoMom` in createFields.H. The design notes below were written before the first build.
 
 ## The option
 `system/fvSolution`, PIMPLE: `momentumDensity eos;` (default, original) or `momentumDensity mass;`.
@@ -94,3 +92,72 @@ python3 energy_check.py runs/*; python3 summarise.py runs/*
 ```
 d) The 2D plume-edge case (tutorials/compressibleLaserbeamFoam_plumeEdge2D) is not created yet. It was part of
 the run phase.
+
+
+## Results (WSL, 28 Oct 2026; tables and plots in shockTube_work/mm_results/)
+
+### Bit-identity of eos
+A:contErr:o10+nc and B:contErr:o10+nc (and +ebi) on this branch with the default `momentumDensity eos` are
+**bit-identical** to the packing2 runs (43bae9b1, writeInterval 1e-9). Every written field file at every write
+matches (4779 files per run). The logs differ only in the VTK output paths.
+
+### mass vs eos in 1D (contErr, o10, gasPackingCap false)
+| run (60 ns) | head | T vap | p vap | shock | p* | u* | T air | rho air | energy drift |
+|---|---|---|---|---|---|---|---|---|---|
+| exact | -84.5 | 4579 | 2.48e6 | 86.6 | 2.48e6 | 1029 | 2138 | 5.57 | 0 |
+| A eos | -95.3 | 4794 | 2.709e6 | 95.3 | 2.518e6 | 1030 | 2567 | 4.67 | +0.49% |
+| A mass | -95.3 | 4793 | 2.703e6 | 95.3 | 2.517e6 | 1032 | 2518 | 4.77 | +0.39% |
+| Af eos | -87.9 | 4649 | 2.526e6 | 89.5 | 2.466e6 | 1022 | 2265 | 5.19 | +0.16% |
+| Af mass | -87.9 | 4642 | 2.509e6 | 89.5 | 2.501e6 | 1030 | 2259 | 5.28 | +0.22% |
+| B eos | | | | | | | | | -0.57% |
+| B mass | | | | | | | | | -0.22% |
+
+- **Size of the change:** mass changes the A/Af plateaus by <= 2%. Over the tube, L1 eos-vs-mass differences
+  are 0.1-0.7% in p, U, T and rho. The larger pointwise differences (2-10%) are confined to the shock-front
+  cell, a one-cell shift.
+- **No sign of a bug.** In Af the drift grows (0.16 -> 0.22%). The E_int error is unchanged (+0.41%) and
+  E_kin moves closer to exact (-0.24 -> -0.19%), so the extra drift is kinetic energy that eos was missing.
+- **Mass and c_i:** mass is conserved to round-off, and no c_i is ever negative.
+- **The new log line:**
+  - `max |rho/rhoM - 1|`: per step it is typically 2.5-3% and at most 7-9%, always at the shock-front cell.
+    It is the same in eos and mass; it does not grow.
+  - `max |ddt(rhoM)+div(rhoPhi)|`: median 3e-3 to 6e-2 kg/m3/s, max 8-26 kg/m3/s. Times dt this is at most
+    1e-10 kg/m3 = cPurgeTol, so it is the purge plus round-off; it peaks right after each write, when dt is
+    smallest. The line is mode-independent by construction (rhoM is always sum c), which confirms that
+    rhoPhi is the flux that moves the c_i.
+- **B, contErr o10:** mass removes the cold dip (eos 4600 K vs mass 5800 K at the contact) and the velocity
+  spike at the contact. The contact plateau is ~2100 m/s (Riemann u* ~2000).
+
+### Stress test: B, kineticEnergyTerms full, gasPackingCap true
+| setting | eos | mass |
+|---|---|---|
+| resCtrl (default) | **stops 26.70 ns**; mismatch rises 0.1 -> 0.45 from 10 to 25 ns; contact runs away to ~5000 m/s | 60 ns, mismatch <= 0.14 |
+| o5nr | **stops 10.15 ns**; mismatch spikes to 1.4 at 9.5 ns | 60 ns, mismatch <= 0.18 |
+| o10 | 60 ns (mismatch <= 0.13) | 60 ns (<= 0.17) |
+
+So where the EOS density and the transported mass drift apart, mass stops the spurious acceleration, as it
+did in the 3D 10 mJ restart. The cap-on shock is still wrong in both modes (a T/U spike at the front), as before.
+
+### 2D plume edge (tutorials/compressibleLaserbeamFoam_plumeEdge2D), contErr o10 nc eb, 5 ranks, 0-20 ns
+- **Both runs reach 20 ns** (eos and mm, 66 min each). No health-check stop, and no energy-budget block
+  (no cell |dT| >= 200 K per step).
+- **The two modes are practically the same:**
+  - Lateral vapour front along the wall: eos 42 / 61 / 86 um, mass 42 / 61 / 83 um at 2 / 10 / 20 ns.
+  - Shock 89 um at 20 ns in both.
+  - max |U| 1930-2020 m/s in both.
+- **Mismatch:** max |rho/rhoM - 1| per step is ~0.1 at start-up, then 0.04-0.05.
+- **Geometry:** the lateral extent equals the axial height (a near-hemicylinder). There is no wall jet and
+  no fast dense-vapour ring like the 3D failure.
+- **This case does not reproduce the 3D mismatch.** Its initial vapour is at rest and in pressure
+  equilibrium within the disc; the 3D plume at 5 ns is laser-driven, with large rho/rhoM (10-45x).
+- **Next 2D test to make it bite:** start from a mapped 3D plume state, or give the disc an outward velocity
+  and a non-equilibrium (rho != sum c) start.
+
+### Tools
+- `tutorials/tools/plumeFront.py`: plume and shock height (axis / max / hemisphere-equivalent), lateral
+  extent at the surface, max |U| / T / p, vapour mass and the rho/rhoM-mismatch volume, per time.
+  - Input: ascii or binary, gz, AMR (polyMesh per time).
+  - Output: a CSV and a log-log plot with an optional Sedov-Taylor line.
+  - Tested on 2D runs (ascii = binary) and a synthetic 3D hemisphere (R_eq 30.4 um for r = 30 um).
+- `LITERATURE_plume_front.md`: published fronts and the blast-wave estimate for 10 mJ in 1 bar argon. The
+  shock should be at ~250-280 / 330-370 / 450-540 um at 10 / 20 / 50 ns, with the vapour front somewhat behind.
