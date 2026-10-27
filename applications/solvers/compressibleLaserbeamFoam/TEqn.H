@@ -29,15 +29,28 @@
     //           closure is off, and the full form turns K*contErr into heat.
     //   none    internal-energy form: p*div(U) only (ESI totalInternalEnergy
     //           false). No kinetic-energy terms at all.
+    //   dissipative
+    //           contErr form split as p*div(U) + D, with
+    //           D = U.grad(p) + rho DK/Dt (= the contErr work term - p*div(U)).
+    //           Physically D = -(dissipation) <= 0, i.e. it can only heat.
+    //           D > 0 (kinetic energy gained beyond the pressure work, e.g. a
+    //           numerical velocity overshoot at a vapour/air contact) would
+    //           cool the gas; it is dropped. D < 0 (shock heating) is kept.
+    //           Work term = p*div(U) + min(D, 0).
     const word keMode
     (
         pimple.dict().getOrDefault<word>("kineticEnergyTerms", "full")
     );
-    if (keMode != "full" && keMode != "contErr" && keMode != "none")
+    if
+    (
+        keMode != "full" && keMode != "contErr" && keMode != "none"
+     && keMode != "dissipative"
+    )
     {
         FatalErrorInFunction
             << "kineticEnergyTerms " << keMode
-            << " unknown, use full, contErr or none" << exit(FatalError);
+            << " unknown, use full, contErr, none or dissipative"
+            << exit(FatalError);
     }
 
     const volScalarField contErrT
@@ -57,10 +70,22 @@
             fvc::div(fvc::absolute(phi, U), p)
           + fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K);
 
-        if (keMode == "contErr")
+        if (keMode == "contErr" || keMode == "dissipative")
         {
             tWork.ref() -= contErrT*K;
         }
+    }
+
+    // dissipative: keep only the heating part of D = work - p*div(U)
+    tmp<volScalarField> tKeDrop;   // the dropped (cooling) part, >= 0
+    const bool keDissipative = (keMode == "dissipative");
+    if (keDissipative)
+    {
+        const volScalarField pDivU(p*fvc::div(fvc::absolute(phi, U)));
+        const volScalarField D(tWork() - pDivU);
+        const dimensionedScalar zeroD(D.dimensions(), Zero);
+        tKeDrop = max(D, zeroD);
+        tWork = pDivU + min(D, zeroD);
     }
     const volScalarField& workTerm = tWork();
 
@@ -83,7 +108,19 @@
         const scalar gMaxV = returnReduce(dMax, maxOp<scalar>());
         Info<< "TEqn: kineticEnergyTerms " << keMode
             << ", mixtureCv " << mixture.mixtureCvMode()
-            << ", max |K*contErr| as dT per step = " << gMaxV << " K" << endl;
+            << ", max |K*contErr| as dT per step = " << gMaxV << " K";
+        if (keDissipative)
+        {
+            const scalarField dropDT
+            (
+                tKeDrop().primitiveField()*rCvDiag.primitiveField()
+               *runTime.deltaTValue()
+               /max(rho.primitiveField(), scalar(1e-3))
+            );
+            Info<< ", max KE cooling dropped (dissipative) = "
+                << gMax(dropDT) << " K";
+        }
+        Info<< endl;
         if (iMax >= 0 && dMax == gMaxV && gMaxV > 100)
         {
             Pout<< "TEqn:   at " << mesh.C()[iMax]
@@ -240,7 +277,11 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
     // and schemes after the final-corrector T solve. Euler ddt with the
     // continuity Sp term gives rho0*(T - T0)/dt, so dT_term = term*dt/rho0.
     // "rest" = actual dT minus the sum: implicitness, relaxation, T clipping.
-    if (healthLimits.energyBudget && pimple.finalIter())
+    if
+    (
+        healthLimits.energyBudget
+     && (pimple.finalIter() || healthLimits.energyBudgetEveryIter)
+    )
     {
         crashStage::set("TEqn: energy budget diagnostic");
 
@@ -282,7 +323,7 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
             );
             const volScalarField pwB
             (
-                keMode == "none"
+                (keMode == "none" || keMode == "dissipative")
               ? volScalarField(p*fvc::div(fvc::absolute(phi, U)))
               : volScalarField(fvc::div(fvc::absolute(phi, U), p))
             );
@@ -302,9 +343,18 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                 const scalar dAdv  = -advB[ci]*f;
                 const scalar dCond =  condB[ci]*f;
                 const scalar dPw   = -pwB[ci]*rc*f;
-                const scalar dKe   = (keMode == "none") ? 0 : -keB[ci]*rc*f;
                 const scalar dCeK  = contErrT[ci]*K[ci]*rc*f;   // +: removed by contErr
-                const scalar dCeKApplied = (keMode == "contErr") ? dCeK : 0;
+                scalar dKe = (keMode == "none") ? 0 : -keB[ci]*rc*f;
+                scalar dCeKApplied = (keMode == "contErr") ? dCeK : 0;
+                scalar dDrop = 0;
+                if (keMode == "dissipative")
+                {
+                    // applied work = p*div(U) + min(D,0); report the D part
+                    // as "kinetic energy" and the dropped cooling separately
+                    dKe = -(workTerm[ci] - pwB[ci])*rc*f;
+                    dCeKApplied = 0;
+                    dDrop = tKeDrop()[ci]*rc*f;
+                }
                 const scalar dLas  =  depB[ci]*rc*f;
                 const scalar dJou  =  JouleB[ci]*rc*f;
                 const scalar dMelt = -TRHS[ci]*rc*f;
@@ -325,6 +375,7 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                 }
 
                 Pout<< "[budget] t = " << runTime.timeName()
+                    << ", outer " << pimple.corr()
                     << ", cell at " << mesh.C()[ci]
                     << (healthLimits.energyBudgetHasPoint ? " (fixed point)" : " (largest |dT|)") << nl
                     << "[budget]   T " << T0B[ci] << " -> " << T[ci]
@@ -334,7 +385,10 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                     << "[budget]   pressure work         " << dPw
                     << (keMode == "none" ? "   (p*div(U))" : "   (div(phi,p))") << nl
                     << "[budget]   kinetic energy        " << dKe
-                    << (keMode == "none" ? "   (off)" : "") << nl
+                    << (keMode == "none" ? "   (off)" : "")
+                    << (keMode == "dissipative" ? "   (heating part of D only)" : "") << nl
+                    << "[budget]   KE cooling dropped    " << dDrop
+                    << (keMode == "dissipative" ? "   (not applied)" : "   (n/a)") << nl
                     << "[budget]   K*contErr             " << dCeKApplied
                     << "   (size " << dCeK << ", applied only in contErr mode)" << nl
                     << "[budget]   laser                 " << dLas << nl

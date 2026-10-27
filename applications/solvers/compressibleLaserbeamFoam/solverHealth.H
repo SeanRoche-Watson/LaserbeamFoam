@@ -77,6 +77,7 @@ struct Limits
 
     // energy budget of one cell after each final-corrector T solve
     bool energyBudget = false;
+    bool energyBudgetEveryIter = false; // also print on non-final outer correctors
     scalar energyBudgetMinDT = 0;      // print only if |dT| at the cell >= this
     bool energyBudgetHasPoint = false;
     vector energyBudgetPoint = Zero;   // fixed cell; default: largest |dT|
@@ -108,6 +109,8 @@ inline Limits readLimits(const dictionary& solutionDict)
     L.abortOnNonFinite = d.getOrDefault<bool>("abortOnNonFinite", L.abortOnNonFinite);
     L.stopOnViolation  = d.getOrDefault<bool>("stopOnViolation", L.stopOnViolation);
     L.energyBudget     = d.getOrDefault<bool>("energyBudget", L.energyBudget);
+    L.energyBudgetEveryIter =
+        d.getOrDefault<bool>("energyBudgetEveryIter", L.energyBudgetEveryIter);
     L.energyBudgetMinDT =
         d.getOrDefault<scalar>("energyBudgetMinDT", L.energyBudgetMinDT);
     if (d.found("energyBudgetPoint"))
