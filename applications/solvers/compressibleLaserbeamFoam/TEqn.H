@@ -234,6 +234,127 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
 }while((iter < minTCorr || (residual > epsilonTol)) && iter <= maxTCorr );
 
 
+    // ---- Energy budget of one cell (DIAGNOSTICS { energyBudget true; }) ----
+    // Each term of the T equation expressed as the temperature change it
+    // gives over this step, evaluated explicitly with the solver's own fields
+    // and schemes after the final-corrector T solve. Euler ddt with the
+    // continuity Sp term gives rho0*(T - T0)/dt, so dT_term = term*dt/rho0.
+    // "rest" = actual dT minus the sum: implicitness, relaxation, T clipping.
+    if (healthLimits.energyBudget && pimple.finalIter())
+    {
+        crashStage::set("TEqn: energy budget diagnostic");
+
+        const scalar dtB = runTime.deltaTValue();
+        const volScalarField& T0B = T.oldTime();
+
+        // pick the cell
+        label ci = -1;
+        scalar key = -GREAT;
+        if (healthLimits.energyBudgetHasPoint)
+        {
+            ci = mesh.findCell(healthLimits.energyBudgetPoint);
+            if (ci >= 0) key = mag(T[ci] - T0B[ci]);
+        }
+        else
+        {
+            forAll(T, i)
+            {
+                const scalar d = mag(T[i] - T0B[i]);
+                if (d > key) { key = d; ci = i; }
+            }
+        }
+        const scalar gKey = returnReduce(key, maxOp<scalar>());
+
+        if (gKey >= healthLimits.energyBudgetMinDT)
+        {
+            // collective field evaluations, all processors
+            const volScalarField rCvB(mixture.rCv());
+            const volScalarField CvMassB(mixture.massWeightedCv());
+            const volScalarField rho0B(max(rho.oldTime(), dimensionedScalar(dimDensity, 1e-3)));
+
+            const volScalarField advB
+            (
+                fvc::div(mixture.rhoPhi(), T) - T*fvc::div(mixture.rhoPhi())
+            );
+            const volScalarField condB
+            (
+                fvc::laplacian(mixture.alphaEff(turbulence->mut()), T)
+            );
+            const volScalarField pwB
+            (
+                keMode == "none"
+              ? volScalarField(p*fvc::div(fvc::absolute(phi, U)))
+              : volScalarField(fvc::div(fvc::absolute(phi, U), p))
+            );
+            const volScalarField keB
+            (
+                fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K)
+            );
+            const volScalarField& JouleB =
+                mthd.valid() ? mthd->Joulesource() : zeroJoulesource;
+            const volScalarField& depB = laser.deposition();
+
+            if (ci >= 0 && key == gKey)
+            {
+                const scalar f = dtB/rho0B[ci];
+                const scalar rc = rCvB[ci];
+
+                const scalar dAdv  = -advB[ci]*f;
+                const scalar dCond =  condB[ci]*f;
+                const scalar dPw   = -pwB[ci]*rc*f;
+                const scalar dKe   = (keMode == "none") ? 0 : -keB[ci]*rc*f;
+                const scalar dCeK  = contErrT[ci]*K[ci]*rc*f;   // +: removed by contErr
+                const scalar dCeKApplied = (keMode == "contErr") ? dCeK : 0;
+                const scalar dLas  =  depB[ci]*rc*f;
+                const scalar dJou  =  JouleB[ci]*rc*f;
+                const scalar dMelt = -TRHS[ci]*rc*f;
+                const scalar dPc   = -mass_dot[ci]*f;
+
+                const scalar dT = T[ci] - T0B[ci];
+                const scalar sum =
+                    dAdv + dCond + dPw + dKe + dCeKApplied
+                  + dLas + dJou + dMelt + dPc;
+
+                OStringStream ph;
+                for (const auto& phs : mixture.phases())
+                {
+                    if (phs[ci] > 1e-3)
+                    {
+                        ph  << ' ' << phs.name() << '=' << phs[ci];
+                    }
+                }
+
+                Pout<< "[budget] t = " << runTime.timeName()
+                    << ", cell at " << mesh.C()[ci]
+                    << (healthLimits.energyBudgetHasPoint ? " (fixed point)" : " (largest |dT|)") << nl
+                    << "[budget]   T " << T0B[ci] << " -> " << T[ci]
+                    << "  (dT " << dT << " K)" << nl
+                    << "[budget]   advection of T        " << dAdv << nl
+                    << "[budget]   conduction            " << dCond << nl
+                    << "[budget]   pressure work         " << dPw
+                    << (keMode == "none" ? "   (p*div(U))" : "   (div(phi,p))") << nl
+                    << "[budget]   kinetic energy        " << dKe
+                    << (keMode == "none" ? "   (off)" : "") << nl
+                    << "[budget]   K*contErr             " << dCeKApplied
+                    << "   (size " << dCeK << ", applied only in contErr mode)" << nl
+                    << "[budget]   laser                 " << dLas << nl
+                    << "[budget]   Joule                 " << dJou << nl
+                    << "[budget]   melting (TRHS)        " << dMelt << nl
+                    << "[budget]   phase change (mass_dot) " << dPc << nl
+                    << "[budget]   sum " << sum << ", rest (implicit/relax/clip) "
+                    << dT - sum << nl
+                    << "[budget]   rho " << rho0B[ci] << " -> " << rho[ci]
+                    << ", p " << p[ci] << ", |U| " << mag(U[ci])
+                    << ", K " << K[ci] << ", contErr " << contErrT[ci] << nl
+                    << "[budget]   Cv used 1/rCv = " << 1.0/max(rc, VSMALL)
+                    << " (mixtureCv " << mixture.mixtureCvMode()
+                    << "), mass-weighted Cv = " << CvMassB[ci] << nl
+                    << "[budget]   phases:" << ph.str().c_str() << endl;
+            }
+        }
+    }
+
+
 
     mixture.correct();
 }

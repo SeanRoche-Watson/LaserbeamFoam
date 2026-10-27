@@ -39,6 +39,9 @@ Description
             writeOnFailure    true;   // write fields when non-finite found
             abortOnNonFinite  true;
             stopOnViolation   false;  // also write+stop on range violations
+            energyBudget      false;  // per-term T budget of one cell (TEqn.H)
+            energyBudgetMinDT 0;      // only print when |dT| >= this [K]
+            energyBudgetPoint (x y z);// optional fixed cell, else largest |dT|
         }
 
 \*---------------------------------------------------------------------------*/
@@ -71,6 +74,12 @@ struct Limits
     bool writeOnFailure = true;
     bool abortOnNonFinite = true;
     bool stopOnViolation = false;
+
+    // energy budget of one cell after each final-corrector T solve
+    bool energyBudget = false;
+    scalar energyBudgetMinDT = 0;      // print only if |dT| at the cell >= this
+    bool energyBudgetHasPoint = false;
+    vector energyBudgetPoint = Zero;   // fixed cell; default: largest |dT|
 };
 
 
@@ -98,6 +107,14 @@ inline Limits readLimits(const dictionary& solutionDict)
     L.writeOnFailure   = d.getOrDefault<bool>("writeOnFailure", L.writeOnFailure);
     L.abortOnNonFinite = d.getOrDefault<bool>("abortOnNonFinite", L.abortOnNonFinite);
     L.stopOnViolation  = d.getOrDefault<bool>("stopOnViolation", L.stopOnViolation);
+    L.energyBudget     = d.getOrDefault<bool>("energyBudget", L.energyBudget);
+    L.energyBudgetMinDT =
+        d.getOrDefault<scalar>("energyBudgetMinDT", L.energyBudgetMinDT);
+    if (d.found("energyBudgetPoint"))
+    {
+        L.energyBudgetPoint = d.get<vector>("energyBudgetPoint");
+        L.energyBudgetHasPoint = true;
+    }
 
     return L;
 }
