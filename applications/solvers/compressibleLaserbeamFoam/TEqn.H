@@ -82,6 +82,7 @@
         }
         const scalar gMaxV = returnReduce(dMax, maxOp<scalar>());
         Info<< "TEqn: kineticEnergyTerms " << keMode
+            << ", mixtureCv " << mixture.mixtureCvMode()
             << ", max |K*contErr| as dT per step = " << gMaxV << " K" << endl;
         if (iMax >= 0 && dMax == gMaxV && gMaxV > 100)
         {

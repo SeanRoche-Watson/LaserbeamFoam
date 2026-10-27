@@ -645,8 +645,60 @@ Foam::tmp<Foam::scalarField> Foam::multiphaseMixtureThermo::Cp
 }
 
 
+Foam::word Foam::multiphaseMixtureThermo::mixtureCvMode() const
+{
+    // Option in constant/thermophysicalProperties:
+    //   mixtureCv volume;  (default) original: Cv = sum alpha_i Cv_i,
+    //                      rCv = sum alpha_i/Cv_i (volume weighted)
+    //   mixtureCv mass;    mass weighted: Cv = sum alpha_i rho_i Cv_i / rho,
+    //                      rCv = 1/Cv. Right for miscible gas mixtures
+    //                      (vapour + air), where the phases share a cell.
+    const word mode
+    (
+        static_cast<const dictionary&>(*this)
+            .getOrDefault<word>("mixtureCv", "volume")
+    );
+    if (mode != "volume" && mode != "mass")
+    {
+        FatalErrorInFunction
+            << "mixtureCv " << mode << " unknown, use volume or mass"
+            << exit(FatalError);
+    }
+    return mode;
+}
+
+
+Foam::tmp<Foam::volScalarField>
+Foam::multiphaseMixtureThermo::massWeightedCv() const
+{
+    // sum alpha_i rho_i Cv_i / sum alpha_i rho_i, phase densities floored
+    // as elsewhere in this class
+    const dimensionedScalar rhoMin("rhoMinCv", dimDensity, 1e-3);
+
+    auto phasei = phases_.cbegin();
+
+    volScalarField rhoI(max(phasei().thermo().rho(), rhoMin));
+    tmp<volScalarField> tRhoCv(phasei()*rhoI*phasei().thermo().Cv());
+    tmp<volScalarField> tRho(phasei()*rhoI);
+
+    for (++phasei; phasei != phases_.cend(); ++phasei)
+    {
+        rhoI = max(phasei().thermo().rho(), rhoMin);
+        tRhoCv.ref() += phasei()*rhoI*phasei().thermo().Cv();
+        tRho.ref() += phasei()*rhoI;
+    }
+
+    return tRhoCv/max(tRho, rhoMin);
+}
+
+
 Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::Cv() const
 {
+    if (mixtureCvMode() == "mass")
+    {
+        return massWeightedCv();
+    }
+
     auto phasei = phases_.cbegin();
 
     tmp<volScalarField> tCv(phasei()*phasei().thermo().Cv());
@@ -998,6 +1050,11 @@ Foam::tmp<Foam::scalarField> Foam::multiphaseMixtureThermo::alphaEff
 
 Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::rCv() const
 {
+    if (mixtureCvMode() == "mass")
+    {
+        return 1.0/massWeightedCv();
+    }
+
     auto phasei = phases_.cbegin();
 
     tmp<volScalarField> trCv(phasei()/phasei().thermo().Cv());

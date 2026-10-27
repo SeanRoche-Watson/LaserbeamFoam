@@ -502,6 +502,12 @@ public:
         //- Return the phase-averaged reciprocal Cv
         tmp<volScalarField> rCv() const;
 
+        //- mixtureCv option from thermophysicalProperties: volume | mass
+        word mixtureCvMode() const;
+
+        //- Mass-weighted mixture Cv: sum alpha_i rho_i Cv_i / sum alpha_i rho_i
+        tmp<volScalarField> massWeightedCv() const;
+
         tmp<surfaceScalarField> surfaceTensionForce() const;
 
         tmp<volVectorField> MarangoniForce(const volScalarField& Temperature) const;
