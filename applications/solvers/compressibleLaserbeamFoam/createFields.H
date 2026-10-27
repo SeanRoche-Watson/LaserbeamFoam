@@ -774,7 +774,9 @@ Info<< "momentumDensity " << momentumDensity << endl;
 // rhoM = sum_i c_i; always built (diagnostics), used only in mass mode.
 // Recomputed from the c fields (see rhoM.H), never read: on a restart its
 // old time level is set from the c fields of the start time, which are the
-// c_i.oldTime() that solveAlphas starts from.
+// c_i.oldTime() that solveAlphas starts from. A mesh change on a later
+// outer corrector (moveMeshOuterCorrectors) maps rhoM and rhoM.oldTime() like
+// any other field; mixture.solve() is not rerun then, so rhoPhi is stale too.
 volScalarField rhoM
 (
     IOobject

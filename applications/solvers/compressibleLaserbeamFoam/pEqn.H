@@ -13,6 +13,11 @@
     // volScalarField rAU("rAU", 1.0/UEqn.A());
     surfaceScalarField rAUf("rAUf", fvc::interpolate(rAU()));
     volVectorField HbyA(constrainHbyA(rAU()*UEqn.H(), U, p_rgh));
+    // ddtCorr factor: the Euler ddt puts rhoMom.oldTime()*U.oldTime()/dt
+    // into H, so the strictly consistent factor would be rhoMom.oldTime();
+    // the original uses the current rho and that is kept (rhoM is constant
+    // over the outer correctors, rhoM.oldTime() differs by one step's mass
+    // change)
     surfaceScalarField phiHbyA
     (
         "phiHbyA",
