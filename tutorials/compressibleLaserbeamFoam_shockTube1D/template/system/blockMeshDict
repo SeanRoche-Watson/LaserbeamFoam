@@ -1,0 +1,40 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      blockMeshDict;
+}
+
+// 1D shock tube along x. Cell size = finest AMR level of the 3D case
+// (3.125 um) unless Allrun changes NX. Diaphragm at x = 0.
+convertToMeters 1e-6;
+
+xmin  -200;
+xmax   400;
+h      1.5625;   // half cell thickness in y and z (one cell, empty)
+
+vertices
+(
+    ($xmin -$h -$h) ($xmax -$h -$h) ($xmax $h -$h) ($xmin $h -$h)
+    ($xmin -$h  $h) ($xmax -$h  $h) ($xmax $h  $h) ($xmin $h  $h)
+);
+
+blocks
+(
+    hex (0 1 2 3 4 5 6 7) (@NX@ 1 1) simpleGrading (1 1 1)
+);
+
+boundary
+(
+    ends
+    {
+        type wall;
+        faces ( (0 4 7 3) (1 2 6 5) );
+    }
+    sides
+    {
+        type empty;
+        faces ( (0 1 5 4) (3 7 6 2) (0 3 2 1) (4 5 6 7) );
+    }
+);

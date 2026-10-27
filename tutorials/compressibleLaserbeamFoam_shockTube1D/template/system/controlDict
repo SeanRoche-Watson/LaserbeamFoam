@@ -1,0 +1,30 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      controlDict;
+}
+
+libs
+(
+    libROUNDSchemes.so
+);
+
+application     compressibleLaserbeamFoam;
+startFrom       startTime;
+startTime       0;
+stopAt          endTime;
+endTime         6e-8;
+deltaT          1e-12;
+writeControl    adjustableRunTime;
+writeInterval   1e-8;
+purgeWrite      0;
+writeFormat     ascii;
+writePrecision  8;
+writeCompression off;
+runTimeModifiable yes;
+adjustTimeStep  yes;
+maxCo           0.25;
+maxAlphaCo      0.2;
+maxDeltaT       @MAXDT@;

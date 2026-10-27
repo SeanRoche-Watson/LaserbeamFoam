@@ -1,0 +1,74 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2006                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSchemes;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+ddtSchemes
+{
+    default         Euler;
+}
+
+gradSchemes
+{
+    default         Gauss linear;
+}
+
+divSchemes
+{
+    // First-order upwind on momentum/energy: diffusive but robust while the
+    // case is being stabilised. Candidates to sharpen later (limitedLinear 1
+    // or vanLeer) once phase-sum stays ~1: div(rhoPhi,U), div(rhoPhi,T).
+    div(rhoPhi,U)                       Gauss upwind;
+    div(rhoPhi,T)                       Gauss upwind;
+    div(rhoPhi,K)                       Gauss upwind;
+    div(phi,p)                          Gauss upwind;
+    "div\(phi,.*rho.*\)"                Gauss upwind;
+
+    // Phase advection: ROUND-A+ (libROUNDSchemes) - bounded, low diffusion
+    div(phi,alpha)                      Gauss ROUNDAplus01;
+    // Interface-compression flux term
+    div(phirb,alpha)                    Gauss linear;
+
+    div(((rho*nuEff)*dev2(T(grad(U))))) Gauss linear;
+
+    // Melt-fraction (epsilon1) advection term in TEqn
+    div(rhoPhi,epsilon1)                Gauss upwind;
+
+    // Removed dead entries not requested by compressibleLaserbeamFoam:
+    // div(phiR,alphaRho), div(phi,p_rgh) (verified against solver source)
+}
+
+laplacianSchemes
+{
+    default         Gauss linear corrected;
+}
+
+interpolationSchemes
+{
+    default         linear;
+}
+
+snGradSchemes
+{
+    default         corrected;
+}
+
+fluxRequired
+{
+    p_rgh;
+}
+
+// ************************************************************************* //

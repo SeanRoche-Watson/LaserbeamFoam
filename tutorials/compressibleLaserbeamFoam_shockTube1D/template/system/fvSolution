@@ -1,0 +1,149 @@
+/*--------------------------------*- C++ -*----------------------------------*\
+
+| =========                 |                                                 |
+| \\      /  F ield         | OpenFOAM: The Open Source CFD Toolbox           |
+|  \\    /   O peration     | Version:  v2006                                 |
+|   \\  /    A nd           | Website:  www.openfoam.com                      |
+|    \\/     M anipulation  |                                                 |
+\*---------------------------------------------------------------------------*/
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    location    "system";
+    object      fvSolution;
+}
+// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
+
+solvers
+{
+    "alpha.*"
+    {
+        // Interface CFL is ~0.002-0.08 at the target deltaT, so alpha
+        // subcycling buys nothing (each subcycle costs 9 MULES solves).
+        nAlphaSubCycles    1;
+        nLimiterIter       20;
+        // NOTE: cAlpha and MULESCorr are NOT read by compressibleLaserbeamFoam
+        // (see multiphaseMixtureThermo.C:932). Interface compression is set
+        // per phase-pair via interfaceCompression in thermophysicalProperties.
+    }
+
+    "pcorr.*"
+    {
+        solver          PCG;
+        preconditioner  DIC;     // Light, zero-overhead preconditioner
+        tolerance       1e-05;
+        relTol          0;
+        minIter         0;       // Allows immediate exit if initial residual is 0
+    }
+
+
+    ".*(rho|rhoFinal)"
+    {
+        solver          diagonal;
+    }
+
+    p_rgh
+    {
+        solver          GAMG;
+        tolerance       1e-07;
+        relTol          0.0;
+        smoother        GaussSeidel;
+    }
+
+    p_rghFinal
+    {
+        solver          GAMG;
+        tolerance       1e-06;
+        relTol          0;
+        smoother        GaussSeidel;
+        nCellsInCoarsest 400;
+        agglomerator    faceAreaPair;
+        mergeLevels     1;
+        cacheAgglomeration true;
+    }
+
+    "(U|T|k|B|nuTilda)"
+    {
+        solver          smoothSolver;
+        smoother        symGaussSeidel;
+        tolerance       1e-09;
+        relTol          0.0;
+        nSweeps         2;
+    }
+
+    "(U|T|k|B|nuTilda)Final"
+    {
+        $U;
+        relTol          0;
+    }
+}
+
+MELTING
+{
+    minTempCorrector 1;
+    maxTempCorrector 25;
+    epsilonTolerance 1e-5;
+    epsilonRelaxation 0.9;
+    
+    damperSwitch true;
+
+    // Darcy sink multiplier vs time (needs the darcy-pulse-switch build).
+    // Off during the pulse (metal treated as compressible fluid), ramped
+    // back on from 5 ns to full strength at 5.5 ns. Remove for original behaviour.
+    // darcyScale table ((0 0) (5e-9 0) (5.5e-9 1));   // off: Darcy at full strength (overflow-fix test)
+}
+
+PIMPLE
+{
+    correctPhi no;
+    kineticEnergyTerms       @MODE@;   // full | contErr | none (needs energy-ke-option build)
+    momentumPredictor        no;
+    nOuterCorrectors         10;   // residualControl typically stops this at 2-10
+    nCorrectors              1;
+    // Uniform hex mesh with hanging-node AMR: non-orthogonality only at
+    // refinement boundaries, 1 corrector is enough (3 = 4x pressure solves).
+    nNonOrthogonalCorrectors 3;
+	
+	    residualControl
+    {
+        T
+        {
+            tolerance   1e-3;
+            relTol      0;
+        }
+        p_rgh
+        {
+            tolerance   1e-7; // Changed from p to p_rgh to match your solving variable
+            relTol      0;
+        }
+    }
+}
+
+
+relaxationFactors
+{
+    fields
+    {
+        p_rgh           0.5;
+    }
+    equations
+    {
+        "U.*"           0.5;
+		"T.*"           0.5;
+    }
+}
+
+
+DIAGNOSTICS
+{
+    enabled           true;
+    TMax              1e5;
+    pMax              1e9;
+    UMax              2e4;
+    cTol              0.1;
+    stopOnViolation   true;   // stop + write fields at the first violation
+}
+
+// ************************************************************************* //

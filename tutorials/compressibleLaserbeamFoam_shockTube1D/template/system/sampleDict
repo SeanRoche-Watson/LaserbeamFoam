@@ -1,0 +1,41 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      sampleDict;
+}
+
+// postProcess -dict merges this file into controlDict, so the set must sit
+// inside a functions{} sub-dictionary (output: postProcessing/sampleDict/<t>/)
+functions
+{
+    // postProcess -dict does not load the sampled fields by itself
+    readFields
+    {
+        type    readFields;
+        libs    (fieldFunctionObjects);
+        fields  (T p rho U alpha.air alpha.metal1vapour c.air c.metal1vapour);
+    }
+
+    sampleDict
+    {
+        type            sets;
+        libs            (sampling);
+        interpolationScheme cell;
+        setFormat       raw;
+
+        sets
+        {
+            line
+            {
+                type    midPoint;   // ESI equivalent of Foundation lineCell
+                axis    x;
+                start   (-2e-4 0 0);
+                end     ( 4e-4 0 0);
+            }
+        }
+
+        fields (T p rho U alpha.air alpha.metal1vapour c.air c.metal1vapour);
+    }
+}

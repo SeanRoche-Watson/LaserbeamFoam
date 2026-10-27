@@ -1,0 +1,41 @@
+FoamFile
+{
+    version     2.0;
+    format      ascii;
+    class       dictionary;
+    object      setFieldsDict;
+}
+
+defaultFieldValues
+(
+    volScalarFieldValue alpha.air          1
+    volScalarFieldValue alpha.metal1       0
+    volScalarFieldValue alpha.metal2       0
+    volScalarFieldValue alpha.metal3       0
+    volScalarFieldValue alpha.metal4       0
+    volScalarFieldValue alpha.metal1vapour 0
+    volScalarFieldValue alpha.metal2vapour 0
+    volScalarFieldValue alpha.metal3vapour 0
+    volScalarFieldValue alpha.metal4vapour 0
+    volScalarFieldValue T                  300
+    volScalarFieldValue p                  1e5
+    volScalarFieldValue p_rgh              1e5
+    volVectorFieldValue U                  (0 0 0)
+);
+
+regions
+(
+    // high-pressure side: pure Fe vapour
+    boxToCell
+    {
+        box (-1 -1 -1) (0 1 1);
+        fieldValues
+        (
+            volScalarFieldValue alpha.air          0
+            volScalarFieldValue alpha.metal1vapour 1
+            volScalarFieldValue T                  @TL@
+            volScalarFieldValue p                  @PL@
+            volScalarFieldValue p_rgh              @PL@
+        );
+    }
+);

@@ -1,0 +1,99 @@
+#!/bin/bash
+# 1D vapour/air shock tube for compressibleLaserbeamFoam.
+#
+#   ./Allrun                      all six: A and B, each with full / contErr / none
+#   ./Allrun A:full B:contErr     just these
+#   ./Allrun Af:full              A at 4x resolution (convergence check)
+#   ./Allrun A:contErr:o5         optional third field = solver-setting variant:
+#        o5    nOuterCorrectors 5, residualControl off (all 5 iterations run)
+#        o10   nOuterCorrectors 10, residualControl off
+#        nr    no under-relaxation (p_rgh, U, T factors 1)
+#        o5nr  both o5 and nr
+#        mc    mixtureCv mass (needs the mixture-cv-option build)
+#        eb    print the per-term energy budget of the cell with the largest |dT|
+#              (needs mixture-cv-option @ f55a0c0e or later; lines start "[budget]")
+#        ebi   as eb, printed on every outer corrector (needs the latest build)
+#   modes: full | contErr | none | dissipative (dissipative needs the latest build)
+#        combine with '+', e.g.  ./Allrun B:contErr:mc B:contErr:o5nr+mc
+#
+# Cases (left = Fe vapour, right = air phase at 1 bar, 300 K, diaphragm at x = 0):
+#   A   1e7 Pa (100 bar), 8000 K   all states < 10 kK, exact Riemann solution valid
+#   B   1e8 Pa (1000 bar), 12000 K  the 5.1 ns plume probes; crosses the janaf 10 kK knee
+#
+# Serial, ~1-3 min per run for A/B. Fine on a login node, or use
+#   sintr -A ukaea-ap002-cpu -p ukaea-spr -N1 -n1 -t 1:0:0
+#
+# Results: runs/<case>_<mode>/log.solver, postProcessing/sampleDict/<t>/line_*.xy
+# Summary: python3 summarise.py runs/*
+
+cd "$(dirname "$0")" || exit 1
+HERE=$PWD
+
+if ! command -v compressibleLaserbeamFoam >/dev/null; then
+    echo "compressibleLaserbeamFoam not found: source of2506.sh first"; exit 1
+fi
+SOLVER=$(command -v compressibleLaserbeamFoam)
+if ! strings "$SOLVER" | grep -q kineticEnergyTerms; then
+    echo "WARNING: $SOLVER has no kineticEnergyTerms option (old build)."
+    echo "         contErr/none runs would silently run as full. Build energy-ke-option first."
+    read -r -p "Continue anyway? [y/N] " a; [ "$a" = y ] || exit 1
+fi
+
+RUNS=("$@")
+[ ${#RUNS[@]} -eq 0 ] && RUNS=(A:full A:contErr A:none B:full B:contErr B:none)
+
+for r in "${RUNS[@]}"; do
+    IFS=: read -r case_ mode variant <<< "$r"
+    case "$case_" in
+        A)  PL=1e7; TL=8000;  NX=192; MAXDT=5e-11 ;;
+        Af) PL=1e7; TL=8000;  NX=768; MAXDT=1.25e-11 ;;
+        B)  PL=1e8; TL=12000; NX=192; MAXDT=5e-11 ;;
+        Bf) PL=1e8; TL=12000; NX=768; MAXDT=1.25e-11 ;;
+        *)  echo "unknown case $case_"; continue ;;
+    esac
+    d=runs/${case_}_${mode}${variant:+_$variant}
+    echo "=== $d  (pL=$PL Pa, TL=$TL K, $NX cells, mode $mode${variant:+, variant $variant})"
+    rm -rf "$d"; mkdir -p runs; cp -r template "$d"
+    sed -i "s/@NX@/$NX/"       "$d/system/blockMeshDict"
+    sed -i "s/@MAXDT@/$MAXDT/" "$d/system/controlDict"
+    sed -i "s/@PL@/$PL/g; s/@TL@/$TL/g" "$d/system/setFieldsDict"
+    sed -i "s/@MODE@/$mode/"   "$d/system/fvSolution"
+    # variant = tokens joined by '+', e.g. o5nr+mc
+    bad=0
+    for v in ${variant//+/ }; do
+        case "$v" in
+            o5|o10|o5nr)
+                n=${v%nr}; n=${n#o}
+                sed -i -E "/^PIMPLE/,/^}/ s/^(\s*nOuterCorrectors\s+)[0-9]+;/\1$n;/" "$d/system/fvSolution"
+                sed -i -E "/^PIMPLE/,/^}/ s/^(\s*)residualControl(\s|$)/\1residualControl_off\2/" "$d/system/fvSolution" ;;&
+            nr|o5nr)
+                sed -i -E "/^relaxationFactors/,/^}/ s/(p_rgh|\"U\.\*\"|\"T\.\*\")(\s+)[0-9.]+;/\1\21;/" "$d/system/fvSolution" ;;
+            mc)
+                sed -i -E 's/^(P0\s.*)$/\1\nmixtureCv\tmass;/' "$d/constant/thermophysicalProperties"
+                grep -q "^mixtureCv" "$d/constant/thermophysicalProperties" || { echo "  could not set mixtureCv"; bad=1; } ;;
+            eb)
+                sed -i -E 's/^(\s*stopOnViolation\s+true;.*)$/\1\n    energyBudget      true;\n    energyBudgetMinDT 200;/' "$d/system/fvSolution"
+                grep -q "energyBudget " "$d/system/fvSolution" || { echo "  could not set energyBudget"; bad=1; } ;;
+            ebi)
+                sed -i -E 's/^(\s*stopOnViolation\s+true;.*)$/\1\n    energyBudget      true;\n    energyBudgetEveryIter true;\n    energyBudgetMinDT 200;/' "$d/system/fvSolution" ;;
+            o5|o10) ;;
+            *) echo "  unknown variant $v"; bad=1 ;;
+        esac
+    done
+    [ $bad = 1 ] && continue
+    cp -r "$d/0.orig" "$d/0"
+    (
+        cd "$d" || exit 1
+        blockMesh > log.blockMesh 2>&1 || { echo "  blockMesh failed, see $d/log.blockMesh"; exit 1; }
+        setFields > log.setFields 2>&1 || { echo "  setFields failed, see $d/log.setFields"; exit 1; }
+        start=$(date +%s)
+        timeout 60m compressibleLaserbeamFoam > log.solver 2>&1
+        echo "  solver exit $? after $(( $(date +%s) - start )) s, last $(grep '^Time = ' log.solver | tail -1)"
+        grep -m1 "PROBLEM DETECTED" log.solver | sed 's/^/  /'
+        postProcess -dict system/sampleDict > log.sample 2>&1 || echo "  sampling failed, see $d/log.sample"
+    )
+done
+
+python3 "$HERE/summarise.py" runs/* | tee summary.txt
+echo
+echo "Summary written to $HERE/summary.txt"
