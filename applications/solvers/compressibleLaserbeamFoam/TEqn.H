@@ -334,6 +334,7 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
             const volScalarField& JouleB =
                 mthd.valid() ? mthd->Joulesource() : zeroJoulesource;
             const volScalarField& depB = laser.deposition();
+            const volVectorField gradPB(fvc::grad(p));
 
             if (ci >= 0 && key == gKey)
             {
@@ -374,6 +375,32 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                     }
                 }
 
+                // is the acceleration pressure driven? compare rho dU/dt along U
+                // with |grad p|, and the EOS density with the transported mass
+                OStringStream momLine;
+                {
+                    const vector Uc = U[ci];
+                    const vector dU = Uc - U.oldTime()[ci];
+                    const scalar magU = mag(Uc);
+                    const scalar aAlong =
+                        (magU > SMALL) ? (dU & Uc)/magU/dtB : mag(dU)/dtB;
+                    const scalar gp = mag(gradPB[ci]);
+                    scalar sumC = 0;
+                    for (const auto& phs : mixture.phases())
+                    {
+                        const volScalarField* cPtr =
+                            mesh.findObject<volScalarField>("c." + phs.name());
+                        if (cPtr) sumC += max((*cPtr)[ci], scalar(0));
+                    }
+                    const scalar rhoA = rho[ci]*aAlong;
+                    momLine
+                        << "rho dU/dt (along U) = " << rhoA
+                        << " N/m3, |grad p| = " << gp
+                        << " Pa/m, ratio = " << rhoA/max(gp, VSMALL)
+                        << "; sum c_i = " << sumC
+                        << ", rho/sum c = " << rho[ci]/max(sumC, VSMALL);
+                }
+
                 Pout<< "[budget] t = " << runTime.timeName()
                     << ", outer " << pimple.corr()
                     << ", cell at " << mesh.C()[ci]
@@ -403,7 +430,8 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                     << "[budget]   Cv used 1/rCv = " << 1.0/max(rc, VSMALL)
                     << " (mixtureCv " << mixture.mixtureCvMode()
                     << "), mass-weighted Cv = " << CvMassB[ci] << nl
-                    << "[budget]   phases:" << ph.str().c_str() << endl;
+                    << "[budget]   phases:" << ph.str().c_str() << nl
+                    << "[budget]   momentum check: " << momLine.str().c_str() << endl;
             }
         }
     }
