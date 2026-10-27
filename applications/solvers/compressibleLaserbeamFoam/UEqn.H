@@ -38,7 +38,7 @@ const volVectorField& JcrossB =
 
 fvVectorMatrix UEqn
 (
-    fvm::ddt(rho, U)
+    fvm::ddt(rhoMom, U)   // rho (eos) or rhoM (mass), see createFields
   + fvm::div(mixture.rhoPhi(), U)
   + turbulence->divDevRhoReff(U)
   + fvm::Sp(DC, U)
@@ -59,7 +59,7 @@ if (pimple.momentumPredictor())
         (
             (
                 mixture.surfaceTensionForce()
-              - ghf*fvc::snGrad(rho)
+              - ghf*fvc::snGrad(rhoMom)
               - fvc::snGrad(p_rgh)
             ) * mesh.magSf()
         )

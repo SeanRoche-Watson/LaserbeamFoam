@@ -17,14 +17,14 @@
     (
         "phiHbyA",
         fvc::flux(HbyA)
-      + fvc::interpolate(rho*rAU())*fvc::ddtCorr(U, phi)
+      + fvc::interpolate(rhoMom*rAU())*fvc::ddtCorr(U, phi)
     );
 
     surfaceScalarField phig
     (
         (
             mixture.surfaceTensionForce()
-          - ghf*fvc::snGrad(rho)
+          - ghf*fvc::snGrad(rhoMom)
         )*rAUf*mesh.magSf()
     );
 
@@ -119,14 +119,23 @@
         }
     }
 
-    p = max(p_rgh + mixture.rho()*gh, pMin);
+    // hydrostatic split p = p_rgh + rho*gh with the momentum density, so
+    // that -grad(p_rgh) - gh*grad(rhoMom) = -grad(p) + rhoMom*g
+    if (massMomentum)
+    {
+        p = max(p_rgh + rhoM*gh, pMin);
+    }
+    else
+    {
+        p = max(p_rgh + mixture.rho()*gh, pMin);
+    }
 
     // Update densities from change in p_rgh
     mixture.correctRho(p_rgh - p_rgh_0);
     rho = mixture.rho();
 
     // Correct p_rgh for consistency with p and the updated densities
-    p_rgh = p - rho*gh;
+    p_rgh = p - rhoMom*gh;
     p_rgh.correctBoundaryConditions();
 
     K = 0.5*magSqr(U);

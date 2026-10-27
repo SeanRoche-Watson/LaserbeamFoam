@@ -56,7 +56,7 @@
     const volScalarField contErrT
     (
         "contErrT",
-        fvc::ddt(rho) + fvc::div(mixture.rhoPhi())
+        fvc::ddt(rhoMom) + fvc::div(mixture.rhoPhi())
     );
 
     tmp<volScalarField> tWork;
@@ -68,7 +68,7 @@
     {
         tWork =
             fvc::div(fvc::absolute(phi, U), p)
-          + fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K);
+          + fvc::ddt(rhoMom, K) + fvc::div(mixture.rhoPhi(), K);
 
         if (keMode == "contErr" || keMode == "dissipative")
         {
@@ -97,7 +97,7 @@
         (
             mag(contErrT.primitiveField()*K.primitiveField())
            *rCvDiag.primitiveField()*runTime.deltaTValue()
-           /max(rho.primitiveField(), scalar(1e-3))
+           /max(rhoMom.primitiveField(), scalar(1e-3))
         );
         scalar dMax = -1;
         label iMax = -1;
@@ -115,7 +115,7 @@
             (
                 tKeDrop().primitiveField()*rCvDiag.primitiveField()
                *runTime.deltaTValue()
-               /max(rho.primitiveField(), scalar(1e-3))
+               /max(rhoMom.primitiveField(), scalar(1e-3))
             );
             Info<< ", max KE cooling dropped (dissipative) = "
                 << gMax(dropDT) << " K";
@@ -160,6 +160,7 @@ epsilon1.storePrevIter();
 
 
 
+// EOS rho kept here in both momentumDensity modes (condensed cells only)
 TRHS = meltMask*LatentHeat*
 (
     fvc::ddt(rho, epsilon1)
@@ -176,9 +177,9 @@ TRHS.correctBoundaryConditions();
 
     fvScalarMatrix TEqn
     (
-        fvm::ddt(rho, T)
+        fvm::ddt(rhoMom, T)
       + fvm::div(mixture.rhoPhi(), T)
-      - fvm::Sp(fvc::ddt(rho) + fvc::div(mixture.rhoPhi()), T)
+      - fvm::Sp(fvc::ddt(rhoMom) + fvc::div(mixture.rhoPhi()), T)
       - fvm::laplacian(mixture.alphaEff(turbulence->mut()), T)
       + workTerm*mixture.rCv()
 
@@ -275,7 +276,8 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
     // Each term of the T equation expressed as the temperature change it
     // gives over this step, evaluated explicitly with the solver's own fields
     // and schemes after the final-corrector T solve. Euler ddt with the
-    // continuity Sp term gives rho0*(T - T0)/dt, so dT_term = term*dt/rho0.
+    // continuity Sp term gives rho0*(T - T0)/dt, so dT_term = term*dt/rho0
+    // (rho0 = rhoMom.oldTime(): EOS rho, or rhoM with momentumDensity mass).
     // "rest" = actual dT minus the sum: implicitness, relaxation, T clipping.
     if
     (
@@ -311,7 +313,7 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
             // collective field evaluations, all processors
             const volScalarField rCvB(mixture.rCv());
             const volScalarField CvMassB(mixture.massWeightedCv());
-            const volScalarField rho0B(max(rho.oldTime(), dimensionedScalar(dimDensity, 1e-3)));
+            const volScalarField rho0B(max(rhoMom.oldTime(), dimensionedScalar(dimDensity, 1e-3)));
 
             const volScalarField advB
             (
@@ -329,7 +331,7 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
             );
             const volScalarField keB
             (
-                fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K)
+                fvc::ddt(rhoMom, K) + fvc::div(mixture.rhoPhi(), K)
             );
             const volScalarField& JouleB =
                 mthd.valid() ? mthd->Joulesource() : zeroJoulesource;
@@ -392,13 +394,22 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                             mesh.findObject<volScalarField>("c." + phs.name());
                         if (cPtr) sumC += max((*cPtr)[ci], scalar(0));
                     }
-                    const scalar rhoA = rho[ci]*aAlong;
+                    const scalar rhoA = rhoMom[ci]*aAlong;
                     momLine
                         << "rho dU/dt (along U) = " << rhoA
                         << " N/m3, |grad p| = " << gp
                         << " Pa/m, ratio = " << rhoA/max(gp, VSMALL)
                         << "; sum c_i = " << sumC
                         << ", rho/sum c = " << rho[ci]/max(sumC, VSMALL);
+                }
+
+                // mass mode: the budget's rho is rhoM, show the EOS rho too
+                OStringStream eosRhoLine;
+                if (massMomentum)
+                {
+                    eosRhoLine
+                        << "[budget]   EOS rho " << rho[ci]
+                        << ", rho/rhoM = " << rho[ci]/rhoM[ci] << nl;
                 }
 
                 Pout<< "[budget] t = " << runTime.timeName()
@@ -424,12 +435,14 @@ meanResidual = gSum(mag(epsilon1.primitiveField()-epsilon1.prevIter().primitiveF
                     << "[budget]   phase change (mass_dot) " << dPc << nl
                     << "[budget]   sum " << sum << ", rest (implicit/relax/clip) "
                     << dT - sum << nl
-                    << "[budget]   rho " << rho0B[ci] << " -> " << rho[ci]
+                    << "[budget]   rho " << rho0B[ci] << " -> " << rhoMom[ci]
+                    << (massMomentum ? " (rhoM, mass)" : "")
                     << ", p " << p[ci] << ", |U| " << mag(U[ci])
                     << ", K " << K[ci] << ", contErr " << contErrT[ci] << nl
                     << "[budget]   Cv used 1/rCv = " << 1.0/max(rc, VSMALL)
                     << " (mixtureCv " << mixture.mixtureCvMode()
                     << "), mass-weighted Cv = " << CvMassB[ci] << nl
+                    << eosRhoLine.str().c_str()
                     << "[budget]   phases:" << ph.str().c_str() << nl
                     << "[budget]   momentum check: " << momLine.str().c_str() << endl;
             }

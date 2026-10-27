@@ -744,3 +744,50 @@ if (bRestartFirstLoop)
 
 #include "createMRF.H"
 #include "createK.H"
+
+// ---- Momentum density: option ----------------------------------------------
+// PIMPLE { momentumDensity eos | mass; }
+//   eos   (default) original: momentum, kinetic energy and the T equation's
+//         inertia use rho = sum_i alpha_i rho_i(p,T) (the EOS mixture density)
+//   mass  they use the transported mass rhoM = sum_i c_i (floor rhoMFloor),
+//         the density that the mass fluxes rhoPhi actually belong to, so
+//         ddt(rhoM) + div(rhoPhi) = 0 (to round-off, purge and the floor).
+//         The compressibility part of pEqn (phase rho, psi) and the EOS rho
+//         itself are unchanged.
+// rhoMom is the density used in UEqn, pEqn (ddtCorr, gravity) and TEqn.
+const word momentumDensity
+(
+    pimple.dict().getOrDefault<word>("momentumDensity", "eos")
+);
+if (momentumDensity != "eos" && momentumDensity != "mass")
+{
+    FatalErrorInFunction
+        << "momentumDensity " << momentumDensity
+        << " unknown, use eos or mass"
+        << exit(FatalError);
+}
+const bool massMomentum = (momentumDensity == "mass");
+const dimensionedScalar rhoMFloor("rhoMFloor", dimDensity, 1e-3);
+
+Info<< "momentumDensity " << momentumDensity << endl;
+
+// rhoM = sum_i c_i; always built (diagnostics), used only in mass mode.
+// Recomputed from the c fields (see rhoM.H), never read: on a restart its
+// old time level is set from the c fields of the start time, which are the
+// c_i.oldTime() that solveAlphas starts from.
+volScalarField rhoM
+(
+    IOobject
+    (
+        "rhoM",
+        runTime.timeName(),
+        mesh,
+        IOobject::NO_READ,
+        massMomentum ? IOobject::AUTO_WRITE : IOobject::NO_WRITE
+    ),
+    mesh,
+    dimensionedScalar(dimDensity, Zero)
+);
+#include "rhoM.H"
+
+const volScalarField& rhoMom = massMomentum ? rhoM : rho;

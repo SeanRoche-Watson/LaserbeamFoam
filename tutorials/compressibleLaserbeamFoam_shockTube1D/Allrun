@@ -13,6 +13,9 @@
 #        eb    print the per-term energy budget of the cell with the largest |dT|
 #              (needs mixture-cv-option @ f55a0c0e or later; lines start "[budget]")
 #        ebi   as eb, printed on every outer corrector (needs the latest build)
+#        nc    gasPackingCap false (thermophysicalProperties)
+#        mm    momentumDensity mass (PIMPLE; needs cc-mass-momentum)
+#        vl    div(phi,alpha) Gauss vanLeer01, no libROUNDSchemes (gas results unchanged)
 #   modes: full | contErr | none | dissipative (dissipative needs the latest build)
 #        combine with '+', e.g.  ./Allrun B:contErr:mc B:contErr:o5nr+mc
 #
@@ -76,6 +79,15 @@ for r in "${RUNS[@]}"; do
                 grep -q "energyBudget " "$d/system/fvSolution" || { echo "  could not set energyBudget"; bad=1; } ;;
             ebi)
                 sed -i -E 's/^(\s*stopOnViolation\s+true;.*)$/\1\n    energyBudget      true;\n    energyBudgetEveryIter true;\n    energyBudgetMinDT 200;/' "$d/system/fvSolution" ;;
+            nc)
+                sed -i -E 's/^(P0\s.*)$/\1\ngasPackingCap\tfalse;/' "$d/constant/thermophysicalProperties"
+                grep -q "^gasPackingCap" "$d/constant/thermophysicalProperties" || { echo "  could not set gasPackingCap"; bad=1; } ;;
+            mm)
+                sed -i -E "/^PIMPLE/,/^}/ s/^(\s*kineticEnergyTerms\s.*)$/\1\n    momentumDensity          mass;/" "$d/system/fvSolution"
+                grep -q "momentumDensity" "$d/system/fvSolution" || { echo "  could not set momentumDensity"; bad=1; } ;;
+            vl)
+                sed -i -E 's/^(\s*div\(phi,alpha\)\s+)Gauss ROUNDAplus01;/\1Gauss vanLeer01;/' "$d/system/fvSchemes"
+                sed -i -E '/libROUNDSchemes\.so/d' "$d/system/controlDict" ;;
             o5|o10) ;;
             *) echo "  unknown variant $v"; bad=1 ;;
         esac

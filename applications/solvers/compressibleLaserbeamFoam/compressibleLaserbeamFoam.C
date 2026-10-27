@@ -200,6 +200,13 @@ int main(int argc, char *argv[])
             {
                 rho.oldTime() = rho;   // set once per time step
 
+                // transported mass at the start of the step: the c_i here
+                // are what solveAlphas stores as c0_ / c_i.oldTime(), so
+                // rhoM.oldTime() = sum_i c_i.oldTime() (also after a mesh
+                // update or a restart, since it is rebuilt from the c fields)
+                #include "rhoM.H"
+                rhoM.oldTime() = rhoM;
+
                 HEALTH_CHECK("start of step, before alpha/phase-change solve");
 
                 crashStage::set
@@ -212,6 +219,8 @@ int main(int argc, char *argv[])
                 mass_dot.correctBoundaryConditions();
                 vDotP.correctBoundaryConditions();
 
+                // c_i are only updated here (once per step, semi-PIMPLE)
+                #include "rhoM.H"
 
                 crashStage::set
                 (
@@ -284,6 +293,21 @@ int main(int argc, char *argv[])
             {
                 turbulence->correct();
             }
+        }
+
+        // EOS density vs transported mass, and the mass-transport continuity
+        // error (both modes; ~0 in the second by construction of rhoPhi)
+        {
+            const volScalarField contErrM
+            (
+                fvc::ddt(rhoM) + fvc::div(mixture.rhoPhi())
+            );
+            Info<< "momentumDensity " << momentumDensity
+                << ": max |rho/rhoM - 1| = "
+                << gMax(mag(rho.primitiveField()/rhoM.primitiveField() - 1))
+                << ", max |ddt(rhoM) + div(rhoPhi)| = "
+                << gMax(mag(contErrM.primitiveField()))
+                << " kg/m3/s" << endl;
         }
 
         crashStage::set("time " + runTime.timeName() + ": writing");
