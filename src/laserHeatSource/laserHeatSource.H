@@ -133,6 +133,11 @@ class laserHeatSource
         bool ctrlInit_;
         scalar ctrlLastUpdate_;
 
+        //- Fraction of the tabulated laser power that reaches the target
+        //  (plasma-shielding transmission). 1 = original behaviour. Set by
+        //  the solver each time step via setTransmission().
+        scalar transmission_;
+
 
     // Private Member Functions
 
@@ -256,6 +261,19 @@ public:
             const scalar nearZeroAbsorptivityTol,
             const boundBox& globalBB
         );
+
+        //- Set the transmitted fraction of the laser power (clipped to
+        //  [0, 1]); applied to every laser at the next updateDeposition
+        void setTransmission(const scalar tau)
+        {
+            transmission_ = Foam::min(Foam::max(tau, scalar(0)), scalar(1));
+        }
+
+        //- Current transmitted fraction of the laser power
+        scalar transmission() const
+        {
+            return transmission_;
+        }
 
         //- Const access to the global bounding box
         const boundBox& globalBB() const

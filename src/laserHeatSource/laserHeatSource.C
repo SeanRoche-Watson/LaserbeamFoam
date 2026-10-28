@@ -586,7 +586,8 @@ laserHeatSource::laserHeatSource
     ctrlR_(),
     ctrlG_(),
     ctrlInit_(false),
-    ctrlLastUpdate_(-GREAT)
+    ctrlLastUpdate_(-GREAT),
+    transmission_(1)
 {
     Info<< "radialPolarHeatSource = " << radialPolarHeatSource_ << endl;
 
@@ -770,12 +771,22 @@ void laserHeatSource::updateDeposition
         // Lookup the current laser position and power
         vector currentLaserPosition =
             timeVsLaserPosition_[laserI](time);
-        const scalar currentLaserPower =
+        // Tabulated power times the plasma-shielding transmission
+        // (transmission_ = 1 unless the solver's PLASMASHIELDING is active)
+        const scalar tabulatedLaserPower =
             timeVsLaserPower_[laserI](time);
+        const scalar currentLaserPower =
+            transmission_*tabulatedLaserPower;
 
         Info<< "Laser: " << laserNames_[laserI] << nl
             << "    mean position = " << currentLaserPosition << nl
-            << "    power = " << currentLaserPower << endl;
+            << "    power = " << currentLaserPower;
+        if (transmission_ < 1)
+        {
+            Info<< "  (tabulated " << tabulatedLaserPower
+                << " x shielding transmission " << transmission_ << ')';
+        }
+        Info<< endl;
 
             // Dict for current laser
         const dictionary& dict = laserDicts_[laserI];
