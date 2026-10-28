@@ -124,7 +124,7 @@ for label, run in RUNS:
 open(os.path.join(OUT, "fronts.csv"), "w", newline="\n").write("\n".join(lines) + "\n")
 
 fig, axs = plt.subplots(2, 3, figsize=(17, 9))
-cols = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd"]
+cols = ["#1f77b4", "#d62728", "#2ca02c", "#9467bd", "#ff7f0e", "#8c564b", "#17becf", "#7f7f7f"]
 for (label, (a, ll, prob)), col in zip(fr.items(), cols):
     if len(a) == 0:
         continue

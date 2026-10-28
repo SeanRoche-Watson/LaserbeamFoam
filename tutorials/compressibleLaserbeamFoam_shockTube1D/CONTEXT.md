@@ -97,3 +97,18 @@ In the shock tube (no condensed phases) `cPackTol 1e3;` removes only the inflow 
 - **New tools:** tutorials/tools/plumeFront.py (front tracker for the 3D run on CSD3) and
   LITERATURE_plume_front.md. The expected shock at 10-50 ns for 10 mJ in argon is ~0.25-0.55 mm.
 - Recommended now: momentumDensity mass, kineticEnergyTerms contErr, gasPackingCap false, o10 (relaxation 0.5).
+
+## Ablation V0-V4 (28 Oct; details in RESULTS_ablation.md, tables/plots in shockTube_work/ablation_results/)
+- **Variants:** V0 full (original) / V1 +mm / V2 +nc / V3 +o10 / V4 contErr (production).
+- **Stability: mass alone (V1) is enough.**
+  - V0 stops in 1D B (26.7 ns) and in the 2D plume edge (5.90 ns: |U| 31.8 km/s at the plume top, mismatch -> 0.3).
+  - V1-V4 reach the end everywhere: 60 ns in 1D, 20 ns in 2D.
+  - The 2D case does reproduce the 3D-type failure when run with the original settings.
+- **Accuracy: o10 is the big step.**
+  - With 2 iterations, V0-V2 drift +1.4 to +4.9% in energy, lag the shock, and run u* 10-15% low with spikes at the
+    shock.
+  - V3/V4 drift 0.2-0.4% and are within ~2% of exact in p*/u*.
+  - Cost: ~2.5-4x wall time in 1D, ~1.6x in 2D.
+- **nc** gives a small gain at no cost: it halves the 2D mismatch and moves the 2D front 73 -> 80 um (83 with o10).
+  In 1D it is mixed (better in A/Af, worse in B).
+- **V3 = V4 to round-off** (worst relative difference 1e-7; identical energy): contErr is redundant under mass.
