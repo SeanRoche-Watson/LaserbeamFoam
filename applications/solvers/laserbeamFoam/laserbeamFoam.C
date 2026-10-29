@@ -65,6 +65,7 @@ Authors
 
 #include "Polynomial.H"
 #include "laserHeatSource.H"
+#include "mthdModel.H"
 
 // * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //
 
@@ -162,7 +163,23 @@ int main(int argc, char *argv[])
                 alpha_filtered, n_filtered, electrical_resistivity
             );
 
-            mixture.correct();
+            // With isoAdvector the mixture is already corrected at the end of
+            // the alpha transport, and on the first outer corrector nothing it
+            // depends on (alpha, U) has changed since then, so a second
+            // correction gives the same values. This assumes that the
+            // correction is idempotent, which holds for the mixtures and
+            // boundary conditions used by laserbeamFoam, but not strictly with
+            // contact-angle boundary conditions (the alpha boundary gradient
+            // is updated at each call) or with a viscosity model whose
+            // correction is not idempotent
+            if
+            (
+                interfaceTrackingScheme != "isoAdvector"
+             || !pimple.firstIter()
+            )
+            {
+                mixture.correct();
+            }
 
             if (pimple.frozenFlow())
             {
@@ -170,12 +187,57 @@ int main(int argc, char *argv[])
             }
 
             #include "UEqn.H"
+            if (mthd.valid())
+            {
+                mthd->solve(phi, U);
+            }
             #include "TEqn.H"
+
+            // The surface tension force depends on the interface and the
+            // damper and, with a temperature-dependent surface tension model,
+            // on the temperature, none of which change in the pressure
+            // corrector loop: calculate it once here, after the energy
+            // equation, rather than in every corrector
+            const surfaceScalarField surfaceTensionForce
+            (
+                mixture.surfaceTensionForce()*fvc::interpolate(damper)
+            );
+
+            // rAU, its face interpolate and the ddtCorr flux depend on the
+            // momentum matrix and on the fields of the previous time step
+            // (for the ddt schemes allowed by checkDdtCorrScheme.H), none of
+            // which change in the pressure corrector loop: calculate them
+            // once here rather than in every corrector
+            if (correctPhi)
+            {
+                rAU.ref() = 1.0/UEqn.A();
+            }
+            else
+            {
+                rAU = 1.0/UEqn.A();
+            }
+
+            const surfaceScalarField rAUf("rAUf", fvc::interpolate(rAU()));
+
+            #include "checkDdtCorrScheme.H"
+
+            const surfaceScalarField phiDdtCorr
+            (
+                MRF.zeroFilter
+                (
+                    fvc::interpolate(rho*rAU())*fvc::ddtCorr(U, phi, Uf)
+                )
+            );
 
             // --- Pressure corrector loop
             while (pimple.correct())
             {
                 #include "pEqn.H"
+            }
+
+            if (!correctPhi)
+            {
+                rAU.clear();
             }
 
             if (pimple.turbCorr())
@@ -184,11 +246,10 @@ int main(int argc, char *argv[])
             }
         }
 
-        // Update the melt history
+        // Update instantaneous liquid metal indicator
         const volScalarField& alphaMetal =
             mesh.lookupObject<volScalarField>("alpha.metal");
-        condition = pos(alphaMetal - 0.5) * pos(epsilon1 - 0.5);
-        meltHistory += condition;
+        liquidMetalCells = pos(alphaMetal - 0.5)*pos(epsilon1 - 0.5);
 
         runTime.write();
 

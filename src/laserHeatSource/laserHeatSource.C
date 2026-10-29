@@ -310,8 +310,24 @@ void laserHeatSource::seedRayCloud
 
     label seedCellI = -1;
 
+    // For a mesh of convex cells, a seed outside the bounding box of this
+    // processor's points cannot lie in one of its cells, so the search below
+    // would fail for it. Skipping such seeds does not change the result:
+    // seedCellI is only updated after a successful search. The box is grown
+    // slightly, relative to its size, to allow for the geometric tolerances
+    // of the point-in-cell tests. With strongly warped or non-convex cells, a
+    // seed accepted by a cell slightly outside this box could in principle
+    // be skipped.
+    boundBox localBb(mesh.points(), false);
+    localBb.inflate(1e-6);
+
     forAll(rayCoords, i)
     {
+        if (!localBb.contains(rayCoords[i]))
+        {
+            continue;
+        }
+
         const label cellI = findLocalCell
             (
                 rayCoords[i],
@@ -813,8 +829,39 @@ void laserHeatSource::updateDeposition
         );
         const scalar rayPowerRelTol
         (
-            dict.lookupOrDefault<scalar>("rayPowerRelTol", 1e-6)
+            dict.lookupOrDefault<scalar>("rayPowerRelTol", 1e-4)
         );
+        const label maxRayBounces
+        (
+            dict.lookupOrDefault<label>("maxRayBounces", 1000)
+        );
+        const word maxRayBounceAction
+        (
+            dict.lookupOrDefault<word>("maxRayBounceAction", "deposit")
+        );
+        const scalar nearZeroAbsorptivityTol
+        (
+            dict.lookupOrDefault<scalar>("nearZeroAbsorptivityTol", SMALL)
+        );
+
+        // A laser with zero power deposits no energy, so there is no need to
+        // seed and track its rays. Its dictionary is still read above, so that
+        // a misconfigured laser is reported even while it is off, and the
+        // total deposition is still reported, as it would be after tracking
+        // its rays. The power comes from the same time table on every
+        // processor, so all processors skip the laser together.
+        if (currentLaserPower == 0)
+        {
+            if (Pstream::master())
+            {
+                rayPaths_[laserI].clear();
+            }
+
+            Info<< "    Total Q deposited: "
+                << fvc::domainIntegrate(deposition_).value() << endl;
+
+            continue;
+        }
 
         updateDeposition
         (
@@ -836,6 +883,9 @@ void laserHeatSource::updateDeposition
             useLocalSearch,
             maxLocalSearch,
             rayPowerRelTol,
+            maxRayBounces,
+            maxRayBounceAction,
+            nearZeroAbsorptivityTol,
             globalBB_
         );
     }
@@ -878,6 +928,9 @@ void laserHeatSource::updateDeposition
     const Switch useLocalSearch,
     const label maxLocalSearch,
     const scalar rayPowerRelTol,
+    const label maxRayBounces,
+    const word& maxRayBounceAction,
+    const scalar nearZeroAbsorptivityTol,
     const boundBox& globalBB
 )
 {
@@ -937,11 +990,6 @@ void laserHeatSource::updateDeposition
         nTotalRays
     );
 
-    // Compute absolute power tolerance from relative tolerance
-    // (Based on average ray power, not total power)
-    const scalar rayPowerAbsTol =
-        rayPowerRelTol*currentLaserPower/max(nTotalRays, 1);
-
     // ==================================================================
     // Step 3: Move the particles through the mesh
     //
@@ -957,6 +1005,16 @@ void laserHeatSource::updateDeposition
     DynamicList<label> finishedRayIDs;
     DynamicList<DynamicList<point>> finishedRayPaths;
 
+    // The ray paths are only used for the VTK output, which is written at
+    // write times; the same decision is taken on every processor
+    const bool recordPaths = mesh.time().writeTime();
+    label maxBounceTerminations = 0;
+    scalar maxBounceResidualPower = 0.0;
+    scalar wallDiscardedPower = 0.0;
+    scalar minAbsorptivity = GREAT;
+    label nearZeroAbsorptivityCount = 0;
+    label maxObservedBounces = 0;
+
     laserRayParticle::trackingData td
     (
         rayCloud,
@@ -969,9 +1027,19 @@ void laserHeatSource::updateDeposition
         dep_cutoff,
         plasma_frequency,
         angular_frequency,
-        rayPowerAbsTol,
+        rayPowerRelTol,
+        maxRayBounces,
+        maxRayBounceAction,
+        nearZeroAbsorptivityTol,
+        maxBounceTerminations,
+        maxBounceResidualPower,
+        wallDiscardedPower,
+        minAbsorptivity,
+        nearZeroAbsorptivityCount,
+        maxObservedBounces,
         finishedRayIDs,
-        finishedRayPaths
+        finishedRayPaths,
+        recordPaths
     );
 
     // Move all ray particles through the mesh.
@@ -980,6 +1048,13 @@ void laserHeatSource::updateDeposition
     // the rays are tracked to completion in a single call.
     rayCloud.storeGlobalPositions();
     rayCloud.move(rayCloud, td, GREAT);
+
+    reduce(maxBounceTerminations, sumOp<label>());
+    reduce(maxBounceResidualPower, sumOp<scalar>());
+    reduce(wallDiscardedPower, sumOp<scalar>());
+    reduce(minAbsorptivity, minOp<scalar>());
+    reduce(nearZeroAbsorptivityCount, sumOp<label>());
+    reduce(maxObservedBounces, maxOp<label>());
 
     // ==================================================================
     // Step 4: Gather ray path segments to master for VTK output
@@ -993,9 +1068,14 @@ void laserHeatSource::updateDeposition
     if (Pstream::master())
     {
         rayPaths_[laserID].clear();
-        rayPaths_[laserID].setSize(nTotalRays);
+
+        if (recordPaths)
+        {
+            rayPaths_[laserID].setSize(nTotalRays);
+        }
     }
 
+    if (recordPaths)
     {
         // Gather to master
         List<labelList> allIDs(Pstream::nProcs());
@@ -1055,6 +1135,35 @@ void laserHeatSource::updateDeposition
 
     const scalar TotalQ = fvc::domainIntegrate(deposition_).value();
     Info<< "    Total Q deposited: " << TotalQ << endl;
+
+    if (wallDiscardedPower > 0)
+    {
+        Info<< "    Power discarded at walls outside the material: "
+            << wallDiscardedPower << " (fraction of current laser power "
+            << wallDiscardedPower/(mag(currentLaserPower) + VSMALL) << ")"
+            << endl;
+    }
+
+    if (maxBounceTerminations > 0)
+    {
+        Info<< "    Ray-tracing safety diagnostics:" << nl
+            << "        maxRayBounces = " << maxRayBounces << nl
+            << "        maxRayBounceAction = " << maxRayBounceAction << nl
+            << "        max observed bounces = " << maxObservedBounces << nl
+            << "        rays handled by maxRayBounces = "
+            << maxBounceTerminations << nl
+            << "        residual power handled by maxRayBounces = "
+            << maxBounceResidualPower << nl
+            << "        residual fraction of current laser power = "
+            << maxBounceResidualPower/(mag(currentLaserPower) + VSMALL) << nl
+            << "        minimum Fresnel absorptivity encountered = "
+            << (minAbsorptivity == GREAT ? scalar(-1) : minAbsorptivity)
+            << nl
+            << "        near-zero absorptivity interactions = "
+            << nearZeroAbsorptivityCount << nl
+            << "        near-zero absorptivity tolerance = "
+            << nearZeroAbsorptivityTol << endl;
+    }
 }
 
 

@@ -91,6 +91,12 @@ public:
         //- Number of reflections
         label bounceCount_;
 
+        //- Smallest absorptivity encountered by this ray
+        scalar minAbsorptivity_;
+
+        //- Number of near-zero absorptivity reflections seen by this ray
+        label nearZeroAbsorptivityCount_;
+
         //- Global ray index (for VTK output ordering)
         label globalRayIndex_;
 
@@ -137,14 +143,45 @@ public:
             //- Angular frequency of laser light [rad/s]
             scalar angularFrequency_;
 
-            //- Ray power absolute tolerance [W]
-            scalar rayPowerAbsTol_;
+            //- Ray power tolerance relative to each ray's initial power
+            scalar rayPowerRelTol_;
+
+            //- Maximum number of reflections before handling a ray
+            label maxRayBounces_;
+
+            //- Action when maxRayBounces is exceeded
+            word maxRayBounceAction_;
+
+            //- Ray absorptivity below this value is counted as near-zero
+            scalar nearZeroAbsorptivityTol_;
+
+            //- Number of rays handled by maxRayBounces on this rank
+            label& maxBounceTerminations_;
+
+            //- Residual ray power handled by maxRayBounces on this rank
+            scalar& maxBounceResidualPower_;
+
+            //- Ray power discarded at walls outside the material on this rank
+            scalar& wallDiscardedPower_;
+
+            //- Smallest absorptivity encountered on this rank
+            scalar& minAbsorptivity_;
+
+            //- Number of near-zero absorptivity interactions on this rank
+            label& nearZeroAbsorptivityCount_;
+
+            //- Largest bounce count encountered on this rank
+            label& maxObservedBounces_;
 
             //- Collected ray paths from finished particles
             //  (particles store their paths here before dying,
             //   since dead particles are removed from the cloud)
             DynamicList<label>& finishedRayIDs_;
             DynamicList<DynamicList<point>>& finishedRayPaths_;
+
+            //- Record the ray paths during this update
+            //  (paths are only needed when they are written)
+            const bool recordPaths_;
 
 
         // Constructor
@@ -160,9 +197,19 @@ public:
             const scalar depCutoff,
             const scalar plasmaFrequency,
             const scalar angularFrequency,
-            const scalar rayPowerAbsTol,
+            const scalar rayPowerRelTol,
+            const label maxRayBounces,
+            const word& maxRayBounceAction,
+            const scalar nearZeroAbsorptivityTol,
+            label& maxBounceTerminations,
+            scalar& maxBounceResidualPower,
+            scalar& wallDiscardedPower,
+            scalar& minAbsorptivity,
+            label& nearZeroAbsorptivityCount,
+            label& maxObservedBounces,
             DynamicList<label>& finishedRayIDs,
-            DynamicList<DynamicList<point>>& finishedRayPaths
+            DynamicList<DynamicList<point>>& finishedRayPaths,
+            const bool recordPaths
         )
         :
             particle::trackingData(cloud),
@@ -175,9 +222,19 @@ public:
             depCutoff_(depCutoff),
             plasmaFrequency_(plasmaFrequency),
             angularFrequency_(angularFrequency),
-            rayPowerAbsTol_(rayPowerAbsTol),
+            rayPowerRelTol_(rayPowerRelTol),
+            maxRayBounces_(maxRayBounces),
+            maxRayBounceAction_(maxRayBounceAction),
+            nearZeroAbsorptivityTol_(nearZeroAbsorptivityTol),
+            maxBounceTerminations_(maxBounceTerminations),
+            maxBounceResidualPower_(maxBounceResidualPower),
+            wallDiscardedPower_(wallDiscardedPower),
+            minAbsorptivity_(minAbsorptivity),
+            nearZeroAbsorptivityCount_(nearZeroAbsorptivityCount),
+            maxObservedBounces_(maxObservedBounces),
             finishedRayIDs_(finishedRayIDs),
-            finishedRayPaths_(finishedRayPaths)
+            finishedRayPaths_(finishedRayPaths),
+            recordPaths_(recordPaths)
         {}
     };
 
@@ -269,6 +326,14 @@ public:
             Cloud<laserRayParticle>& cloud,
             trackingData& td
         );
+
+        //- Append the current position to the ray path, if paths are
+        //  being recorded
+        void recordPathPoint(const trackingData& td);
+
+        //- Store the ray path for collection on the master, if paths are
+        //  being recorded
+        void storePath(trackingData& td) const;
 
         //- Compute Fresnel absorptivity at an interface
         static scalar computeFresnelAbsorptivity

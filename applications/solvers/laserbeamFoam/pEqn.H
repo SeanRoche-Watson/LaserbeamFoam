@@ -1,20 +1,10 @@
 {
-    if (correctPhi)
-    {
-        rAU.ref() = 1.0/UEqn.A();
-    }
-    else
-    {
-        rAU = 1.0/UEqn.A();
-    }
-
-    surfaceScalarField rAUf("rAUf", fvc::interpolate(rAU()));
     volVectorField HbyA(constrainHbyA(rAU()*UEqn.H(), U, p_rgh));
     surfaceScalarField phiHbyA
     (
         "phiHbyA",
         fvc::flux(HbyA)
-      + MRF.zeroFilter(fvc::interpolate(rho*rAU())*fvc::ddtCorr(U, phi, Uf))
+      + phiDdtCorr
     );
     MRF.makeRelative(phiHbyA);
 
@@ -28,7 +18,7 @@
     surfaceScalarField phig
     (
         (
-            mixture.surfaceTensionForce()*fvc::interpolate(damper)
+            surfaceTensionForce
           +(fvc::interpolate(pVap)*fvc::snGrad(alpha1)*fvc::interpolate(damper))
           - ghf*fvc::snGrad(rho*rhok)
         )*rAUf*mesh.magSf()
@@ -82,12 +72,4 @@
         );
         p_rgh = p - rho*gh*rhok;
     }
-
-    if (!correctPhi)
-    {
-        rAU.clear();
-    }
-
-    Num_divU = fvc::div(phi);
-
 }
