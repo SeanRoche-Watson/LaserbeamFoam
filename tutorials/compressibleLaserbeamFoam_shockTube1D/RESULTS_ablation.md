@@ -101,3 +101,12 @@ They agree to round-off:
 - **Required for stability:** mass.
 - **Required for accuracy:** o10.
 - **Optional:** nc (helps the 2D plume, mixed in 1D B) and contErr (redundant under mass, harmless).
+
+## Notes added 2 Nov 2026
+- **Data:** tables, plots and CSVs are in `ablation_results/` next to this file; see its README.
+- **2D vapour front depends on the threshold.** The vapour fronts above use sum alpha_vap > 0.01, the leading tail of a
+  contact smeared numerically over about 18-27 cells (1-99% width of alpha.air in 1D; no compression on vapour/air).
+  The small gap to the shock is probably mostly smearing, and the V1-V3 trend may partly reflect the tail. Shock
+  positions (p > 2e5) are unaffected. `tools/plumeFront.py` uses the same 0.01 threshold. Not yet re-measured at 0.5.
+- **B V0 contact velocity.** The table's 4560 m/s is summarise.py's u*. At alpha.air = 0.5 the contact moves at
+  3.7-4.3 km/s from 10 to 26 ns (V1: 2.0-2.2 km/s). Max |U| reaches 32 km/s in the step that stops the run.
