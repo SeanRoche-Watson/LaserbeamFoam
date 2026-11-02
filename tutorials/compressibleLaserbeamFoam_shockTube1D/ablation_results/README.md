@@ -47,14 +47,15 @@ Reading them:
 | V1 | 5 ns | 2187 | 6951 | 0.084 |
 | V1 | 20 ns | 2111 | 5331 | 0.104 |
 
-## Guard log lines at ~1.9 ns: not found
-No log line from a guard firing at about 1.9 ns exists in any of this data.
-- **Searched:** all 540 `log.*` files in the WSL home (excluding paraview and the Python environments), case-insensitive
-  for "guard" and including logs grep treats as binary; the docs in this repo; the shockTube_work text files.
-  Zero matches.
-- **`[health]` lines:** none before 3 ns in any log. In these runs they appear only at the stops
-  (B V0 26.7 ns, P V0 5.90 ns).
-- **"guard" in the solver source:** only `cMinMelt` (TEqn.H) and `coarsenGuard` (update.H). Neither prints anything.
-- **Not searched:** the logs on CSD3, which would be the place to look if the guard fired in a 3D run.
-- **Not a substitute:** 2D V0 does print `group flux limiter: gasPackingCap on ...` around 1.9 ns, but that line fires
-  on nearly every step from about 0.01 ns, so it does not mark an event at 1.9 ns.
+## Overflow guard log lines at ~1.9 ns: not in this data
+The phase-change overflow guard (commit de5e0059, in `solveAlphas`) is in this branch and so in every build used here.
+When it fires it prints `<phase pair>: vapour denser than liquid (EOS) in N cell(s) ... volume limit skipped there`,
+followed by `e.g. at (x y z): T = ..., p = ..., rhoVap = ..., rhoLiq = ...`. The word "guard" does not appear.
+- **Searched for "vapour denser":** all 540 `log.*` files in the WSL home (excluding paraview and the Python
+  environments, including logs grep treats as binary), and the shockTube_work folder. Zero matches.
+- **So the guard did not fire in any V0-V4 run,** 1D or 2D. These cases are far below the ~11 GPa where the Mo vapour
+  EOS density passes the liquid's.
+- **Not searched:** the logs on CSD3, the likely place if it fired at ~1.9 ns in a 3D run; the rest of OneDrive (that
+  search timed out).
+- **Not a substitute:** the `group flux limiter` line around 1.9 ns in 2D V0 is a different mechanism and prints on
+  nearly every step.
