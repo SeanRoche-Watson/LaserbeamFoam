@@ -1,0 +1,129 @@
+Energy and mass conservation, closed 1D shock tube (all drifts relative to t = 0)
+
+Table 1: relative drift of E_tot = E_int + E_kin with TRANSPORTED masses c_i  [percent]
+run                    how far                   10ns     20ns     30ns     40ns     50ns     60ns   max|dE|  at ns  last good (ns)    dE_int    dE_kin
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+A_V0                   finished                +0.428   +0.807   +1.215   +1.664   +2.158   +2.696    +2.696   60.0   +2.696 (60.0)    -5.012    +7.707
+A_V1                   finished                +0.362   +0.704   +1.054   +1.412   +1.780   +2.156    +2.156   60.0   +2.156 (60.0)    -4.399    +6.554
+A_V2                   finished                +0.313   +0.594   +0.858   +1.113   +1.364   +1.613    +1.613   60.0   +1.613 (60.0)    -4.331    +5.944
+A_V3                   finished                +0.149   +0.214   +0.265   +0.309   +0.349   +0.385    +0.385   60.0   +0.385 (60.0)    -8.260    +8.645
+A_V4                   finished                +0.149   +0.214   +0.265   +0.309   +0.349   +0.385    +0.385   60.0   +0.385 (60.0)    -8.260    +8.645
+Af_V0                  finished                +0.414   +0.964   +1.702   +2.620   +3.665   +4.857    +4.857   60.0   +4.857 (60.0)    -4.963    +9.820
+Af_V1                  finished                +0.352   +0.726   +1.114   +1.510   +1.908   +2.308    +2.308   60.0   +2.308 (60.0)    -4.385    +6.693
+Af_V2                  finished                +0.279   +0.528   +0.773   +1.017   +1.260   +1.504    +1.504   60.0   +1.504 (60.0)    -4.592    +6.095
+Af_V3                  finished                +0.078   +0.114   +0.144   +0.172   +0.198   +0.222    +0.222   60.0   +0.222 (60.0)    -8.723    +8.946
+Af_V4                  finished                +0.078   +0.114   +0.144   +0.172   +0.198   +0.222    +0.222   60.0   +0.222 (60.0)    -8.723    +8.946
+B_V0                   STOP 26.70ns pEqn       +2.383   +9.299        -        -        -        -   +43.387   26.7  +11.633 (26.0)    -4.789   +16.422
+B_V1                   finished                +0.203   +0.414   +0.647   +0.887   +1.136   +1.392    +1.392   60.0   +1.392 (60.0)   -10.744   +12.136
+B_V2                   finished                +0.430   +0.902   +1.400   +1.915   +2.444   +2.981    +2.981   60.0   +2.981 (60.0)    -7.885   +10.866
+B_V3                   finished                -0.098   -0.142   -0.172   -0.194   -0.212   -0.226    -0.226   60.0   -0.226 (60.0)   -13.608   +13.382
+B_V4                   finished                -0.098   -0.142   -0.172   -0.194   -0.212   -0.226    -0.226   60.0   -0.226 (60.0)   -13.608   +13.382
+
+Table 2: same with the EOS density, E_tot_EOS = sum(rho (Y_air e_air + Y_vap e_vap + |U|^2/2) V)  [percent]
+run                    how far                   10ns     20ns     30ns     40ns     50ns     60ns   max|dE|  at ns  last good (ns)    dE_int    dE_kin
+-------------------------------------------------------------------------------------------------------------------------------------------------------
+A_V0                   finished                +0.419   +0.798   +1.208   +1.659   +2.153   +2.693    +2.693   60.0   +2.693 (60.0)    -5.013    +7.706
+A_V1                   finished                +0.353   +0.695   +1.045   +1.404   +1.772   +2.148    +2.148   60.0   +2.148 (60.0)    -4.403    +6.551
+A_V2                   finished                +0.308   +0.588   +0.852   +1.107   +1.358   +1.607    +1.607   60.0   +1.607 (60.0)    -4.335    +5.942
+A_V3                   finished                +0.146   +0.210   +0.260   +0.304   +0.344   +0.380    +0.380   60.0   +0.380 (60.0)    -8.261    +8.641
+A_V4                   finished                +0.146   +0.210   +0.260   +0.304   +0.344   +0.380    +0.380   60.0   +0.380 (60.0)    -8.261    +8.641
+Af_V0                  finished                +0.412   +0.964   +1.704   +2.624   +3.672   +4.866    +4.866   60.0   +4.866 (60.0)    -4.959    +9.825
+Af_V1                  finished                +0.350   +0.724   +1.112   +1.508   +1.906   +2.306    +2.306   60.0   +2.306 (60.0)    -4.387    +6.692
+Af_V2                  finished                +0.277   +0.526   +0.771   +1.015   +1.259   +1.502    +1.502   60.0   +1.502 (60.0)    -4.593    +6.095
+Af_V3                  finished                +0.077   +0.113   +0.144   +0.171   +0.197   +0.221    +0.221   60.0   +0.221 (60.0)    -8.723    +8.945
+Af_V4                  finished                +0.077   +0.113   +0.144   +0.171   +0.197   +0.221    +0.221   60.0   +0.221 (60.0)    -8.723    +8.945
+B_V0                   STOP 26.70ns pEqn       +2.472   +9.463        -        -        -        -   +51.913   26.7  +11.888 (26.0)    -4.749   +16.638
+B_V1                   finished                +0.206   +0.419   +0.652   +0.893   +1.142   +1.398    +1.398   60.0   +1.398 (60.0)   -10.740   +12.138
+B_V2                   finished                +0.434   +0.905   +1.405   +1.918   +2.449   +2.986    +2.986   60.0   +2.986 (60.0)    -7.882   +10.868
+B_V3                   finished                -0.090   -0.135   -0.167   -0.189   -0.205   -0.220    -0.220   60.0   -0.220 (60.0)   -13.604   +13.384
+B_V4                   finished                -0.090   -0.135   -0.167   -0.189   -0.205   -0.220    -0.220   60.0   -0.220 (60.0)   -13.604   +13.384
+
+max|dE|: over all written times (for a STOPped run this is the health-check dump of the broken state).
+last good: drift at the last written time before the stop (= the last time for finished runs).
+dE_int, dE_kin: change of E_int and E_kin from t = 0 to the last good time, as % of E_tot(0).
+  (In a shock tube E_int is physically converted into E_kin, so these two are large and opposite
+   even for an exact solution; their SUM is the drift. Table 1b separates the error for case A.)
+
+Table 1b (case A / Af): error against the exact Riemann solution at the last good time, % of E_tot(0)
+run                      t [ns]      E_kin exact     E_kin solver        err E_int        err E_kin
+---------------------------------------------------------------------------------------------------
+A_V0                       60.0           +9.132           +7.707           +4.120           -1.425
+A_V1                       60.0           +9.132           +6.554           +4.733           -2.578
+A_V2                       60.0           +9.132           +5.944           +4.801           -3.188
+A_V3                       60.0           +9.132           +8.645           +0.872           -0.487
+A_V4                       60.0           +9.132           +8.645           +0.872           -0.487
+Af_V0                      60.0           +9.132           +9.820           +4.169           +0.688
+Af_V1                      60.0           +9.132           +6.693           +4.747           -2.439
+Af_V2                      60.0           +9.132           +6.095           +4.540           -3.037
+Af_V3                      60.0           +9.132           +8.946           +0.409           -0.186
+Af_V4                      60.0           +9.132           +8.946           +0.409           -0.186
+err E_int = E_int - (E_tot(0) - E_kin_exact); err E_kin = E_kin - E_kin_exact; they add up to the drift.
+
+Table 3: mass, and dissipative-mode dropped KE cooling
+run                      dM_air(0)   dM_vap(0) dM_air(1ns) dM_vap(1ns)   rhoEOS-sumc   dissipative: largest dropped [K]; T solves > 100 K / total
+-------------------------------------------------------------------------------------------------------------------------------------------------
+A_V0                     -3.51e-08   -7.43e-09    7.18e-09   -3.07e-09     -1.94e-04   -
+A_V1                     -3.51e-08   -7.08e-09    6.97e-09   -2.71e-09     -1.93e-04   -
+A_V2                     -3.51e-08   -6.97e-09    6.24e-09   -2.84e-09     -1.72e-04   -
+A_V3                     -3.47e-08   -8.13e-09    6.87e-09   -3.75e-09     -1.68e-04   -
+A_V4                     -3.47e-08   -8.13e-09    6.87e-09   -3.75e-09     -1.68e-04   -
+Af_V0                    -3.58e-08   -5.87e-09    7.76e-09   -1.89e-09      4.00e-05   -
+Af_V1                    -3.56e-08   -6.06e-09    5.65e-09   -2.14e-09     -3.15e-05   -
+Af_V2                    -3.56e-08   -5.85e-09    5.18e-09   -1.92e-09     -4.34e-05   -
+Af_V3                    -3.56e-08   -6.19e-09    6.16e-09   -2.31e-09     -3.92e-05   -
+Af_V4                    -3.56e-08   -6.19e-09    6.16e-09   -2.31e-09     -3.92e-05   -
+B_V0                     -3.47e-08   -1.51e-08    8.46e-09    2.73e-09      2.17e-02   -
+B_V1                     -3.47e-08   -1.51e-08    1.05e-08    4.70e-09     -6.98e-05   -
+B_V2                     -3.47e-08   -1.51e-08    1.24e-08    5.25e-09      4.47e-05   -
+B_V3                     -3.51e-08   -1.50e-08    1.33e-08    5.27e-09      6.49e-05   -
+B_V4                     -3.51e-08   -1.50e-08    1.33e-08    5.27e-09      6.49e-05   -
+dM_i(0): largest signed (M_i(t) - M_i(0))/M_i(0) over all written times; M_i(0) is the exact EOS rebuild,
+         so this includes a ~1e-8 offset from writePrecision 8 in the written c_i files.
+dM_i(1ns): the same relative to the first written time (1 ns), i.e. file-to-file; ~1e-8 = output round-off.
+max(rhoEOS-sumc): largest (sum(rho V) - sum(c V))/sum(c V), the gap between the two density definitions.
+
+janaf checks (from A_V0):
+  air (air): molWeight 39.948, R 208.132 J/kgK, Tcommon 10000
+      Cp/R low,high at Tcommon                     2.5  2.50000001
+      e(Tc-eps), e(Tc), e(Tc+eps)                  3028899.731  3028902.853  3028905.975
+      Ha/R low,high at Tcommon (with a6) [J/kg]    5048171.421  5048171.435
+      e(8000) exact vs Simpson                     2404505.887  2404505.887
+      e(12000) exact vs Simpson                    4701200.754  4701200.754
+      e(20000) exact vs Simpson                    137138504  137138504
+  vap (metal1vapour): molWeight 55.85, R 148.871 J/kgK, Tcommon 10000
+      Cp/R low,high at Tcommon                     2.5  2.5
+      e(Tc-eps), e(Tc), e(Tc+eps)                  2166490.357  2166492.59  2166494.823
+      Ha/R low,high at Tcommon (with a6) [J/kg]    3610820.983  3610820.983
+      e(8000) exact vs Simpson                     1719878.266  1719878.266
+      e(12000) exact vs Simpson                    3030107.284  3030107.284
+      e(20000) exact vs Simpson                    56524610.49  56524610.49
+A_V0                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel -3.5e-16); M_air rel 2.6e-15, M_vap rel -9.6e-16
+A_V1                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel -3.5e-16); M_air rel 2.6e-15, M_vap rel -9.6e-16
+A_V2                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel -3.5e-16); M_air rel 2.6e-15, M_vap rel -9.6e-16
+A_V3                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel -3.5e-16); M_air rel 2.6e-15, M_vap rel -9.6e-16
+A_V4                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel -3.5e-16); M_air rel 2.6e-15, M_vap rel -9.6e-16
+Af_V0                  NX 768, V 7.629395e-18 m3 (mesh check OK; points: 769 x-planes, dx 0.78125..0.78125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel 3.1e-14); M_air rel 5.8e-15, M_vap rel 1.7e-15
+Af_V1                  NX 768, V 7.629395e-18 m3 (mesh check OK; points: 769 x-planes, dx 0.78125..0.78125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel 3.1e-14); M_air rel 5.8e-15, M_vap rel 1.7e-15
+Af_V2                  NX 768, V 7.629395e-18 m3 (mesh check OK; points: 769 x-planes, dx 0.78125..0.78125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel 3.1e-14); M_air rel 5.8e-15, M_vap rel 1.7e-15
+Af_V3                  NX 768, V 7.629395e-18 m3 (mesh check OK; points: 769 x-planes, dx 0.78125..0.78125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel 3.1e-14); M_air rel 5.8e-15, M_vap rel 1.7e-15
+Af_V4                  NX 768, V 7.629395e-18 m3 (mesh check OK; points: 769 x-planes, dx 0.78125..0.78125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 2.8208630371e-08 J vs analytic 2.8208630371e-08 J (rel 3.1e-14); M_air rel 5.8e-15, M_vap rel 1.7e-15
+B_V0                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 3.3128375650e-07 J vs analytic 3.3128375650e-07 J (rel 1.3e-15); M_air rel 2.6e-15, M_vap rel -9.2e-16
+B_V1                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 3.3128375650e-07 J vs analytic 3.3128375650e-07 J (rel 1.3e-15); M_air rel 2.6e-15, M_vap rel -9.2e-16
+B_V2                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 3.3128375650e-07 J vs analytic 3.3128375650e-07 J (rel 1.3e-15); M_air rel 2.6e-15, M_vap rel -9.2e-16
+B_V3                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 3.3128375650e-07 J vs analytic 3.3128375650e-07 J (rel 1.3e-15); M_air rel 2.6e-15, M_vap rel -9.2e-16
+B_V4                   NX 192, V 3.051758e-17 m3 (mesh check OK; points: 193 x-planes, dx 3.125..3.125 um, ly 3.125 um, lz 3.125 um)
+                       t=0: E_kin 0.000e+00 J; E_tot 3.3128375650e-07 J vs analytic 3.3128375650e-07 J (rel 1.3e-15); M_air rel 2.6e-15, M_vap rel -9.2e-16
