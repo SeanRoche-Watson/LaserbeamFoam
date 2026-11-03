@@ -51,6 +51,7 @@ epsilon1.storePrevIter();
 
 
 
+// EOS rho kept here in both momentumDensity modes (condensed cells only)
 TRHS = meltMask*LatentHeat*
 (
     fvc::ddt(rho, epsilon1)
@@ -67,13 +68,13 @@ TRHS.correctBoundaryConditions();
 
     fvScalarMatrix TEqn
     (
-        fvm::ddt(rho, T)
+        fvm::ddt(rhoMom, T)
       + fvm::div(mixture.rhoPhi(), T)
-      - fvm::Sp(fvc::ddt(rho) + fvc::div(mixture.rhoPhi()), T)
+      - fvm::Sp(fvc::ddt(rhoMom) + fvc::div(mixture.rhoPhi()), T)
       - fvm::laplacian(mixture.alphaEff(turbulence->mut()), T)
       + (
             fvc::div(fvc::absolute(phi, U), p)
-          + fvc::ddt(rho, K) + fvc::div(mixture.rhoPhi(), K)
+          + fvc::ddt(rhoMom, K) + fvc::div(mixture.rhoPhi(), K)
         )*mixture.rCv()
 
         ==
