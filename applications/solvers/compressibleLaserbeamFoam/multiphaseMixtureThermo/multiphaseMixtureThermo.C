@@ -2373,6 +2373,18 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
     const scalar cPackTol =
         phasedictionary.getOrDefault<scalar>("cPackTol", 1.02);
 
+    // Option: packing cap on the GAS group (thermophysicalProperties).
+    //   gasPackingCap true;   default, original: gas inflow limited so the
+    //                         cell's gas mass stays <= cPackTol x the gas EOS
+    //                         density at the current p, T, and the upwinded
+    //                         gas density in the flux capped at that density.
+    //   gasPackingCap false;  no packing cap for gas (gas is compressible: a
+    //                         shock has to deliver the mass before p and T
+    //                         rise). The positivity (outflow) limit stays.
+    // The condensed group always keeps its packing cap.
+    const bool gasPackingCap =
+        phasedictionary.getOrDefault<bool>("gasPackingCap", true);
+
     // --- group totals, group sources, and the packing cap density ---------
          //  cap = densest species of the group at local (p,T), tightened below to
         //  the compositon weighted mixture density where theres actual content
@@ -2485,18 +2497,19 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
             rhoCondCap
         )
     );
+    const volScalarField psiGasRaw
+    (
+        "psiGasRaw",
+        max
+        (
+            cGasTot/max(scalar(1) - condensate, betaSmall),
+            dimensionedScalar("zeroRho", dimDensity, 0.0)
+        )
+    );
     const volScalarField psiGas
     (
         "psiGas",
-        min
-        (
-            max
-            (
-                cGasTot/max(scalar(1) - condensate, betaSmall),
-                dimensionedScalar("zeroRho", dimDensity, 0.0)
-            ),
-            rhoGasCap
-        )
+        gasPackingCap ? volScalarField(min(psiGasRaw, rhoGasCap)) : psiGasRaw
     );
 
     surfaceScalarField FCond("FCond", upwind<scalar>(mesh_, betaPhi).flux(psiCond));
@@ -2592,9 +2605,10 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
         }
 
         scalarField& lamNI = lamN.primitiveFieldRef();
+        const bool capInflow = (grp == 0) || gasPackingCap;
         forAll(lamNI, celli)
         {
-            if (inflow[celli] > VSMALL)
+            if (capInflow && inflow[celli] > VSMALL)
             {
                 const scalar headroom =
                     (
@@ -2688,7 +2702,8 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
         reduce(nInG,  sumOp<label>()); reduce(mInG,  minOp<scalar>());
         if (nOutC || nInC || nOutG || nInG)
         {
-            Info<< "group flux limiter: condensed out " << nOutC
+            Info<< "group flux limiter: gasPackingCap "
+                << (gasPackingCap ? "on" : "off") << ", condensed out " << nOutC
                 << " (min " << mOutC << ") / in " << nInC
                 << " (min " << mInC << "); gas out " << nOutG
                 << " (min " << mOutG << ") / in " << nInG
