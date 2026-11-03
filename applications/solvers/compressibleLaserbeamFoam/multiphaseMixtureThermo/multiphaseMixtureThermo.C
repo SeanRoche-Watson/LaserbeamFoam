@@ -1990,6 +1990,12 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                         // which cells get to keep teh implicit presure coupling kP
                         scalarField kPkeepI(r.primitiveField().size(), 1.0);
                         label nClampE = 0, nClampM = 0, nClampV = 0;
+
+                        // cells where the vapour EOS is denser than the
+                        // liquid (perfect gas at GPa and moderate T); see
+                        // the volume limit below
+                        label nDense = 0, nDenseActive = 0, iDense = -1;
+                        const scalar dVspecMin = 1e-12;   // m3/kg
                         {
                           
 
@@ -2041,16 +2047,63 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                                 //  this one scales with 1/dt so it must stay
                                 //  under maxPhaseChangeFraction (see note at
                                 //  the etaVol read)
+                                //  If the vapour EOS is denser than the
+                                //  liquid (perfect gas at GPa pressure),
+                                //  evaporation makes no volume here and the
+                                //  limit does not apply. The old
+                                //  max(dV, VSMALL) floor gave
+                                //  etaVol*rDeltaT/1e-300 > DBL_MAX, i.e. a
+                                //  SIGFPE overflow in solveAlphas.
                                 const scalar dVspec =
-                                    Foam::max
-                                    (
-                                        1.0/rhoVapI[celli]
-                                      - 1.0/rhoLiqI[celli],
-                                        VSMALL
-                                    );
-                                const scalar rMaxV = etaVol*rDeltaT/dVspec;
-                                if (rc >  rMaxV) { rc =  rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
-                                if (rc < -rMaxV) { rc = -rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
+                                    1.0/rhoVapI[celli] - 1.0/rhoLiqI[celli];
+                                if (dVspec > dVspecMin)
+                                {
+                                    const scalar rMaxV = etaVol*rDeltaT/dVspec;
+                                    if (rc >  rMaxV) { rc =  rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
+                                    if (rc < -rMaxV) { rc = -rMaxV; ++nClampV; kPkeepI[celli] = 0.0; }
+                                }
+                                else
+                                {
+                                    if (iDense < 0) iDense = celli;
+                                    ++nDense;
+                                    if (mag(rcKinetic) > 1e-3) ++nDenseActive;
+                                }
+                            }
+                        }
+
+                        // report dense-vapour cells (where the old code
+                        // overflowed), with the location of one of them
+                        {
+                            const label nDenseLocal = nDense;
+                            reduce(nDense, sumOp<label>());
+                            reduce(nDenseActive, sumOp<label>());
+                            if (nDense)
+                            {
+                                Info<< "    phase change (" << liq.name()
+                                    << "," << vap.name() << "): vapour denser "
+                                    << "than liquid (EOS) in " << nDense
+                                    << " cell(s), " << nDenseActive
+                                    << " with a non-trivial rate; volume "
+                                    << "limit skipped there" << endl;
+
+                                const label reporter = returnReduce
+                                (
+                                    nDenseLocal
+                                  ? Pstream::myProcNo() : Pstream::nProcs(),
+                                    minOp<label>()
+                                );
+                                if (Pstream::myProcNo() == reporter && iDense >= 0)
+                                {
+                                    Pout<< "    e.g. at "
+                                        << mesh_.C()[iDense]
+                                        << ": T = " << T_[iDense]
+                                        << ", p = " << p_[iDense]
+                                        << ", rhoVap = " << rhoVap[iDense]
+                                        << ", rhoLiq = " << rhoLiq[iDense]
+                                        << " (" << nDenseLocal
+                                        << " such cells on this processor)"
+                                        << endl;
+                                }
                             }
                         }
 
@@ -2530,11 +2583,11 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                     Foam::max(cTotI[celli], scalar(0))*V[celli]*rDeltaT
                   + Foam::min(SuI[celli], scalar(0))*V[celli];
 
-                lamOI[celli] = Foam::min
-                (
-                    scalar(1),
-                    Foam::max(budget, scalar(0))/outflow[celli]
-                );
+                // ratio only formed when < 1, so a tiny outflow can't
+                // overflow the division
+                const scalar b = Foam::max(budget, scalar(0));
+                lamOI[celli] =
+                    (b >= outflow[celli]) ? scalar(1) : b/outflow[celli];
             }
         }
 
@@ -2551,11 +2604,9 @@ Foam::tmp<Foam::volScalarField> Foam::multiphaseMixtureThermo::solveAlphas
                   - Foam::max(SuI[celli], scalar(0))*V[celli]
                   + lamOI[celli]*outflow[celli];
 
-                lamNI[celli] = Foam::min
-                (
-                    scalar(1),
-                    Foam::max(headroom, scalar(0))/inflow[celli]
-                );
+                const scalar h = Foam::max(headroom, scalar(0));
+                lamNI[celli] =
+                    (h >= inflow[celli]) ? scalar(1) : h/inflow[celli];
             }
         }
 
